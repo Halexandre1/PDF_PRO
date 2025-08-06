@@ -6,6 +6,9 @@
     <title>Editor de PDF PRO</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-light: #f1f5f9;
@@ -50,8 +53,8 @@
             </div>
             <div>
                 <label for="mergeInput" class="cursor-pointer bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out w-full flex items-center justify-center gap-2">
-                    <i class="fas fa-plus-circle"></i> Juntar com outro PDF
-                    <input type="file" id="mergeInput" accept=".pdf" class="hidden" />
+                    <i class="fas fa-plus-circle"></i> Juntar com outro(s) PDF(s)
+                    <input type="file" id="mergeInput" accept=".pdf" class="hidden" multiple />
                 </label>
             </div>
         </div>
@@ -70,7 +73,7 @@
         </div>
 
         <div id="pdfContainerWrapper" class="pdf-container-wrapper flex flex-wrap justify-center gap-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 min-h-[300px] max-h-[600px] overflow-y-auto transition-all duration-200 ease-in-out">
-            <p id="initialMessage" class="text-gray-500 dark:text-gray-400 text-lg self-center">Arraste e solte um PDF aqui, ou use o botão "Escolher PDF".</p>
+            <p id="initialMessage" class="text-gray-500 dark:text-gray-400 text-lg self-center">Arraste e solte um ou mais PDFs aqui.</p>
             <div id="pdfContainer" class="flex flex-wrap justify-center gap-4"></div>
         </div>
         <footer id="signature" class="text-center mt-4 text-sm text-gray-500 dark:text-gray-400"></footer>
@@ -142,29 +145,30 @@
             elements.fileNameInput.disabled = !isPdfLoaded;
         }
 
-        async function loadPdfFromArrayBuffer(arrayBuffer, isMerge = false) {
-            showLoading(isMerge ? 'A juntar PDF...' : 'A carregar PDF...');
+        async function loadPdfFromFiles(files, isMerge = false) {
+            showLoading(isMerge ? `A juntar ${files.length} PDF(s)...` : `A carregar ${files.length} PDF(s)...`);
             try {
                 if (isMerge && !pdfDocLib) {
-                    showModal("Por favor, carregue um PDF principal primeiro antes de juntar outro.");
+                    showModal("Por favor, carregue um PDF principal primeiro antes de juntar outros.");
                     return;
                 }
 
-                const newPdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
-                
-                if (isMerge) {
-                    const copiedPages = await pdfDocLib.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
-                    copiedPages.forEach(page => pdfDocLib.addPage(page));
-                } else {
-                    pdfDocLib = newPdfDoc;
-                }
+                let currentDoc = isMerge ? pdfDocLib : await PDFLib.PDFDocument.create();
 
+                for (const file of files) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const newPdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+                    const copiedPages = await currentDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
+                    copiedPages.forEach(page => currentDoc.addPage(page));
+                }
+                
+                pdfDocLib = currentDoc;
                 const pdfBytes = await pdfDocLib.save();
                 pdfDocOriginal = await pdfjsLib.getDocument({ data: pdfBytes.slice(0) }).promise;
                 await renderPDFPages();
 
-                if (!isMerge) elements.initialMessage.classList.add('hidden');
-                showModal(isMerge ? 'PDFs juntados com sucesso!' : 'PDF carregado com sucesso!');
+                elements.initialMessage.classList.add('hidden');
+                showModal(`${files.length} ficheiro(s) processado(s) com sucesso!`);
 
             } catch (error) {
                 console.error("Erro ao carregar/juntar PDF:", error);
@@ -340,15 +344,13 @@
         elements.fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            const arrayBuffer = await file.arrayBuffer();
-            await loadPdfFromArrayBuffer(arrayBuffer);
+            await loadPdfFromFiles([file]);
         });
 
         elements.mergeInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const arrayBuffer = await file.arrayBuffer();
-            await loadPdfFromArrayBuffer(arrayBuffer, true);
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+            await loadPdfFromFiles(files, true);
             e.target.value = '';
         });
 
@@ -377,17 +379,15 @@
         }
 
         function setSignature() {
-            elements.signature.textContent = `Feito por HAlexandre em 03/08/2025 às 21:24`;
+            elements.signature.textContent = `Feito por HAlexandre em 03/08/2025 às 22:15`;
         }
         
-        // --- Drag and Drop for File Loading ---
         function preventDefaults(e) {
             e.preventDefault();
             e.stopPropagation();
         }
 
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            elements.pdfContainerWrapper.addEventListener(eventName, preventDefaults, false);
             document.body.addEventListener(eventName, preventDefaults, false);
         });
 
@@ -401,16 +401,13 @@
 
         elements.pdfContainerWrapper.addEventListener('drop', async (e) => {
             elements.pdfContainerWrapper.classList.remove('drop-zone-highlight');
-            const dt = e.dataTransfer;
-            const files = dt.files;
-
-            if (files.length > 0 && files[0].type === 'application/pdf') {
-                const file = files[0];
-                const arrayBuffer = await file.arrayBuffer();
-                await loadPdfFromArrayBuffer(arrayBuffer);
-            } else {
-                showModal("Por favor, solte um arquivo PDF válido.");
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+            if (files.length === 0) {
+                showModal("Por favor, solte ficheiros PDF válidos.");
+                return;
             }
+            const isMerge = pdfDocLib !== null;
+            await loadPdfFromFiles(files, isMerge);
         }, false);
 
         document.addEventListener('DOMContentLoaded', () => {
