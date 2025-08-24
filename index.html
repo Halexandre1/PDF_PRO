@@ -10,33 +10,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --accent-color: #4f46e5;
-        }
-        body { 
-            font-family: 'Inter', sans-serif; 
-            transition: background-color 0.3s, color 0.3s;
-        }
-        .pdf-page.selected { 
-            border-color: var(--accent-color); 
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.5); 
-        }
+        :root { --accent-color: #4f46e5; }
+        body { font-family: 'Inter', sans-serif; transition: background-color 0.3s, color 0.3s; }
+        .pdf-page.selected { border-color: var(--accent-color); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.5); }
         .pdf-container-wrapper::-webkit-scrollbar { display: none; }
         .pdf-container-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
-        .loader { 
-            border-right-color: transparent !important; 
-            animation: spin 1s linear infinite; 
-        }
-        @keyframes spin { 
-            0% { transform: rotate(0deg); } 
-            100% { transform: rotate(360deg); } 
-        }
+        .loader { border-right-color: transparent !important; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .pdf-page.dragging { opacity: 0.5; cursor: grabbing; }
         .pdf-page.drag-over { box-shadow: 0 0 0 4px var(--accent-color); }
-        .drop-zone-highlight { 
-            border-color: var(--accent-color) !important; 
-            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.5) !important; 
-        }
+        .drop-zone-highlight { border-color: var(--accent-color) !important; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.5) !important; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center p-4 font-sans bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-200">
@@ -44,7 +27,6 @@
     <div class="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-xl w-full max-w-5xl">
         <header class="flex justify-between items-start mb-4">
             <div class="flex items-center gap-4">
-                <!-- ADICIONE O SEU LOGÓTIPO AQUI -->
                 <img src="https://raw.githubusercontent.com/Halexandre1/PDF_PRO/main/HERBERT.jpg" alt="Logótipo do Editor de PDF PRO" class="w-12 h-12 rounded-md">
                 <div>
                     <h2 class="text-3xl font-bold text-indigo-700 dark:text-indigo-400">Editor de PDF PRO</h2>
@@ -87,16 +69,110 @@
 
     <!-- Bibliotecas Externas -->
     <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    
+    <!-- O pdf-lib será carregado dentro do Worker -->
+
+    <!-- Script do Worker -->
+    <script id="pdfWorker" type="javascript/worker">
+        // Importa a biblioteca pdf-lib para dentro do worker
+        self.importScripts('https://unpkg.com/pdf-lib/dist/pdf-lib.min.js');
+
+        let pdfDoc = null;
+
+        // Listener para mensagens da thread principal
+        self.onmessage = async (event) => {
+            const { type, payload } = event.data;
+
+            try {
+                switch (type) {
+                    case 'LOAD_FILES': {
+                        const { files } = payload;
+                        if (!pdfDoc) {
+                            pdfDoc = await self.PDFLib.PDFDocument.create();
+                        }
+                        for (let i = 0; i < files.length; i++) {
+                            const file = files[i];
+                            // Envia o progresso de volta para a thread principal
+                            self.postMessage({ type: 'PROGRESS', payload: { message: `A processar ficheiro ${i + 1} de ${files.length}: ${file.name}` } });
+                            const arrayBuffer = await file.arrayBuffer();
+                            const newPdfDoc = await self.PDFLib.PDFDocument.load(arrayBuffer);
+                            const copiedPages = await pdfDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
+                            copiedPages.forEach(page => pdfDoc.addPage(page));
+                        }
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'LOAD_SUCCESS', payload: { pdfBytes } });
+                        break;
+                    }
+                    case 'ROTATE': {
+                        const { indices, angle } = payload;
+                        indices.forEach(index => {
+                            const page = pdfDoc.getPage(index);
+                            const currentRotation = page.getRotation().angle;
+                            page.setRotation(self.PDFLib.degrees(currentRotation + angle));
+                        });
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas giradas com sucesso!' } });
+                        break;
+                    }
+                    case 'REMOVE': {
+                        const { indices } = payload;
+                        // Ordenar em ordem decrescente para evitar problemas de índice
+                        const sortedIndices = [...indices].sort((a, b) => b - a);
+                        sortedIndices.forEach(index => pdfDoc.removePage(index));
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas removidas com sucesso!' } });
+                        break;
+                    }
+                    case 'REORDER': {
+                        const { fromIndex, toIndex } = payload;
+                        const [movedPage] = await pdfDoc.copyPages(pdfDoc, [fromIndex]);
+                        pdfDoc.removePage(fromIndex);
+                        pdfDoc.insertPage(toIndex, movedPage);
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes } });
+                        break;
+                    }
+                     case 'REPLACE': {
+                        const { index, file } = payload;
+                        const arrayBuffer = await file.arrayBuffer();
+                        const replacementPdf = await self.PDFLib.PDFDocument.load(arrayBuffer);
+                        const [copiedPage] = await pdfDoc.copyPages(replacementPdf, [0]);
+                        pdfDoc.removePage(index);
+                        pdfDoc.insertPage(index, copiedPage);
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Página substituída com sucesso!' } });
+                        break;
+                    }
+                    case 'SPLIT': {
+                        const { indices } = payload;
+                        const newPdfDoc = await self.PDFLib.PDFDocument.create();
+                        const sortedIndices = [...indices].sort((a, b) => a - b);
+                        const copiedPages = await newPdfDoc.copyPages(pdfDoc, sortedIndices);
+                        copiedPages.forEach(page => newPdfDoc.addPage(page));
+                        const pdfBytes = await newPdfDoc.save();
+                        self.postMessage({ type: 'SPLIT_SUCCESS', payload: { pdfBytes } });
+                        break;
+                    }
+                    case 'SAVE': {
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'SAVE_SUCCESS', payload: { pdfBytes } });
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.error('Erro no Worker:', error);
+                self.postMessage({ type: 'ERROR', payload: { message: `Ocorreu um erro no worker: ${error.message}` } });
+            }
+        };
+    </script>
 
     <script>
         /**
-         * @file Editor de PDF Pro - Uma ferramenta de manipulação de PDF no lado do cliente.
+         * @file Editor de PDF Pro - Uma ferramenta de manipulação de PDF no lado do cliente com Web Worker.
          * @author HAlexandre
-         * @version 2.4.0
+         * @version 3.0.0
          */
 
-        // Configuração do worker da PDF.js
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
         const DOM = {
@@ -113,55 +189,40 @@
                 replace: document.getElementById('replaceButton'),
             },
             fileNameInput: document.getElementById('fileNameInput'),
-            modal: {
-                container: document.getElementById('customModal'),
-                message: document.getElementById('modalMessage'),
-                closeButton: document.getElementById('modalCloseButton')
-            },
-            loading: {
-                overlay: document.getElementById('loadingOverlay'),
-                message: document.getElementById('loadingMessage')
-            },
+            modal: { container: document.getElementById('customModal'), message: document.getElementById('modalMessage'), closeButton: document.getElementById('modalCloseButton') },
+            loading: { overlay: document.getElementById('loadingOverlay'), message: document.getElementById('loadingMessage') },
             themeToggle: document.getElementById('themeToggle'),
             htmlEl: document.documentElement,
             signature: document.getElementById('signature')
         };
 
         const appState = {
-            pdfDocOriginal: null,
-            pdfDocLib: null,
+            pdfDocOriginal: null, // Objeto da pdf.js para renderização
             selectedPageIndices: [],
-            draggedPageIndex: null
+            draggedPageIndex: null,
+            pdfWorker: null
         };
 
         const UI = {
-            showModal(message) {
-                DOM.modal.message.textContent = message;
-                DOM.modal.container.classList.remove('hidden');
-            },
-            hideModal() {
-                DOM.modal.container.classList.add('hidden');
-            },
-            showLoading(message = 'A carregar...') {
-                DOM.loading.message.textContent = message;
-                DOM.loading.overlay.classList.remove('hidden');
-            },
-            hideLoading() {
-                DOM.loading.overlay.classList.add('hidden');
-            },
+            showModal(message) { DOM.modal.message.textContent = message; DOM.modal.container.classList.remove('hidden'); },
+            hideModal() { DOM.modal.container.classList.add('hidden'); },
+            showLoading(message = 'A carregar...') { DOM.loading.message.textContent = message; DOM.loading.overlay.classList.remove('hidden'); },
+            hideLoading() { DOM.loading.overlay.classList.add('hidden'); },
             updateButtonStates() {
-                const isPdfLoaded = appState.pdfDocLib !== null;
+                const isPdfLoaded = appState.pdfDocOriginal !== null;
                 const selectedCount = appState.selectedPageIndices.length;
+                Object.values(DOM.buttons).forEach(btn => btn.disabled = !isPdfLoaded);
                 DOM.buttons.rotateClockwise.disabled = selectedCount === 0;
                 DOM.buttons.rotateCounterClockwise.disabled = selectedCount === 0;
                 DOM.buttons.remove.disabled = selectedCount === 0;
                 DOM.buttons.split.disabled = selectedCount === 0;
                 DOM.buttons.replace.disabled = selectedCount !== 1;
-                DOM.buttons.download.disabled = !isPdfLoaded;
                 DOM.fileNameInput.disabled = !isPdfLoaded;
             },
-            async renderPDFPages() {
-                if (!appState.pdfDocOriginal) return;
+            async renderPDFPages(pdfBytes) {
+                UI.showLoading('A renderizar páginas...');
+                const pdfData = new Uint8Array(pdfBytes);
+                appState.pdfDocOriginal = await pdfjsLib.getDocument({ data: pdfData }).promise;
                 DOM.pdfContainer.innerHTML = '';
                 appState.selectedPageIndices = [];
 
@@ -189,7 +250,9 @@
                     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
                     DOM.pdfContainer.appendChild(pageDiv);
                 }
+                DOM.initialMessage.classList.add('hidden');
                 this.updateButtonStates();
+                UI.hideLoading();
             },
             loadTheme() {
                 const savedTheme = localStorage.getItem('theme');
@@ -203,163 +266,25 @@
                 }
             },
             setSignature() {
-                const now = new Date();
-                const year = now.getFullYear();
+                const year = new Date().getFullYear();
                 DOM.signature.textContent = `Feito por HAlexandre © ${year}`;
-            }
-        };
-
-        const PDF = {
-            async updateDocs(pdfLibDoc) {
-                appState.pdfDocLib = pdfLibDoc;
-                const pdfBytes = await appState.pdfDocLib.save();
-                const pdfBytesCopy = pdfBytes.slice(0);
-                appState.pdfDocOriginal = await pdfjsLib.getDocument({ data: pdfBytesCopy }).promise;
-                await UI.renderPDFPages();
-            },
-            async loadFiles(files) {
-                const isMerge = appState.pdfDocLib !== null;
-                let currentDoc = isMerge ? appState.pdfDocLib : await PDFLib.PDFDocument.create();
-                const totalFiles = files.length;
-
-                const processFile = async (index) => {
-                    if (index >= totalFiles) {
-                        try {
-                            UI.showLoading('A finalizar e a renderizar...');
-                            await this.updateDocs(currentDoc);
-                            DOM.initialMessage.classList.add('hidden');
-                            UI.showModal(`${totalFiles} ficheiro(s) processado(s) com sucesso!`);
-                        } catch (e) {
-                            console.error("Erro ao finalizar o documento:", e);
-                            UI.showModal("Ocorreu um erro ao finalizar o documento.");
-                        } finally {
-                            UI.hideLoading();
-                        }
-                        return;
-                    }
-
-                    const file = files[index];
-                    UI.showLoading(`A processar ficheiro ${index + 1} de ${totalFiles}: ${file.name}`);
-                    
-                    try {
-                        const arrayBuffer = await file.arrayBuffer();
-                        const newPdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
-                        const copiedPages = await currentDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
-                        copiedPages.forEach(page => currentDoc.addPage(page));
-
-                        setTimeout(() => processFile(index + 1), 50);
-                    } catch (error) {
-                        console.error(`Erro ao processar o ficheiro ${file.name}:`, error);
-                        UI.hideLoading();
-                        UI.showModal(`Ocorreu um erro ao processar o ficheiro "${file.name}". O processo foi interrompido.`);
-                    }
-                };
-                processFile(0);
-            },
-            async rotatePages(angle) {
-                if (appState.selectedPageIndices.length === 0) return UI.showModal("Selecione as páginas para girar.");
-                UI.showLoading('A girar páginas...');
-                appState.selectedPageIndices.forEach(index => {
-                    const page = appState.pdfDocLib.getPage(index);
-                    const currentRotation = page.getRotation().angle;
-                    page.setRotation(PDFLib.degrees(currentRotation + angle));
-                });
-                await this.updateDocs(appState.pdfDocLib);
-                UI.hideLoading();
-                UI.showModal('Páginas giradas com sucesso!');
-            },
-            async removePages() {
-                if (appState.selectedPageIndices.length === 0) return UI.showModal("Selecione as páginas para remover.");
-                UI.showLoading('A remover páginas...');
-                const sortedIndices = [...appState.selectedPageIndices].sort((a, b) => b - a);
-                sortedIndices.forEach(index => appState.pdfDocLib.removePage(index));
-                await this.updateDocs(appState.pdfDocLib);
-                UI.hideLoading();
-                UI.showModal('Páginas removidas com sucesso!');
-            },
-            async split() {
-                if (appState.selectedPageIndices.length === 0) return UI.showModal("Selecione as páginas para criar um novo PDF.");
-                UI.showLoading('A dividir PDF...');
-                const newPdfDoc = await PDFLib.PDFDocument.create();
-                const sortedIndices = [...appState.selectedPageIndices].sort((a, b) => a - b);
-                const copiedPages = await newPdfDoc.copyPages(appState.pdfDocLib, sortedIndices);
-                copiedPages.forEach(page => newPdfDoc.addPage(page));
-                const pdfBytes = await newPdfDoc.save();
-                this.download(pdfBytes, "pdf_dividido.pdf");
-                UI.hideLoading();
-                UI.showModal('Novo PDF criado com sucesso a partir das páginas selecionadas!');
-            },
-            async replacePage() {
-                if (appState.selectedPageIndices.length !== 1) return UI.showModal("Por favor, selecione exatamente uma página para substituir.");
-                
-                const tempInput = document.createElement('input');
-                tempInput.type = 'file';
-                tempInput.accept = '.pdf';
-                tempInput.onchange = async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    
-                    UI.showLoading('A substituir página...');
-                    try {
-                        const pageIndexToReplace = appState.selectedPageIndices[0];
-                        const arrayBuffer = await file.arrayBuffer();
-                        const replacementPdf = await PDFLib.PDFDocument.load(arrayBuffer);
-                        
-                        const [copiedPage] = await appState.pdfDocLib.copyPages(replacementPdf, [0]);
-
-                        appState.pdfDocLib.removePage(pageIndexToReplace);
-                        appState.pdfDocLib.insertPage(pageIndexToReplace, copiedPage);
-
-                        await this.updateDocs(appState.pdfDocLib);
-                        UI.showModal('Página substituída com sucesso!');
-                    } catch (error) {
-                        console.error("Erro ao substituir página:", error);
-                        UI.showModal("Erro ao substituir a página. Verifique o ficheiro de substituição.");
-                    } finally {
-                        UI.hideLoading();
-                    }
-                };
-                tempInput.click();
             },
             download(bytes, defaultName) {
                 const blob = new Blob([bytes], { type: 'application/pdf' });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
-                let fileName = DOM.fileNameInput.value.trim();
-                if (!fileName) fileName = defaultName;
+                let fileName = DOM.fileNameInput.value.trim() || defaultName;
                 if (!fileName.toLowerCase().endsWith('.pdf')) fileName += '.pdf';
                 link.download = fileName;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
                 URL.revokeObjectURL(link.href);
-            },
-            async save() {
-                if (!appState.pdfDocLib) return UI.showModal("Nenhum PDF carregado para salvar.");
-
-                UI.showLoading('A construir o PDF... Isto pode demorar, por favor, aguarde.');
-                
-                // Aguarda um curto período para garantir que a mensagem de loading seja renderizada.
-                await new Promise(resolve => setTimeout(resolve, 50));
-
-                try {
-                    const pdfBytes = await appState.pdfDocLib.save();
-                    this.download(pdfBytes, "pdf_editado.pdf");
-                    UI.showModal("PDF salvo com sucesso!");
-                } catch (error) {
-                    console.error("Erro ao salvar o PDF:", error);
-                    UI.showModal("Ocorreu um erro ao salvar o PDF. Tente novamente.");
-                } finally {
-                    UI.hideLoading();
-                }
             }
         };
 
         const EventHandlers = {
-            preventDefaults(e) {
-                e.preventDefault();
-                e.stopPropagation();
-            },
+            preventDefaults(e) { e.preventDefault(); e.stopPropagation(); },
             onPageClick(e) {
                 const pageDiv = e.currentTarget;
                 const clickedIndex = parseInt(pageDiv.dataset.index);
@@ -378,52 +303,111 @@
                 appState.draggedPageIndex = parseInt(pageElement.dataset.index);
                 pageElement.classList.add('dragging');
             },
-            onDragOver(e) {
-                e.preventDefault();
-                e.target.closest('.pdf-page')?.classList.add('drag-over');
-            },
-            onDragLeave(e) {
-                e.target.closest('.pdf-page')?.classList.remove('drag-over');
-            },
-            async onDropOnPage(e) {
+            onDragOver(e) { e.preventDefault(); e.target.closest('.pdf-page')?.classList.add('drag-over'); },
+            onDragLeave(e) { e.target.closest('.pdf-page')?.classList.remove('drag-over'); },
+            onDropOnPage(e) {
                 e.preventDefault();
                 const targetElement = e.target.closest('.pdf-page');
                 targetElement?.classList.remove('drag-over');
-                const targetIndex = parseInt(targetElement?.dataset.index);
+                const toIndex = parseInt(targetElement?.dataset.index);
+                const fromIndex = appState.draggedPageIndex;
                 
-                if (appState.draggedPageIndex !== null && targetIndex !== null && appState.draggedPageIndex !== targetIndex) {
+                if (fromIndex !== null && toIndex !== null && fromIndex !== toIndex) {
                     UI.showLoading('A reordenar páginas...');
-                    const [movedPage] = await appState.pdfDocLib.copyPages(appState.pdfDocLib, [appState.draggedPageIndex]);
-                    appState.pdfDocLib.removePage(appState.draggedPageIndex);
-                    appState.pdfDocLib.insertPage(targetIndex, movedPage);
-                    await PDF.updateDocs(appState.pdfDocLib);
-                    UI.hideLoading();
+                    appState.pdfWorker.postMessage({ type: 'REORDER', payload: { fromIndex, toIndex } });
                 }
             },
-            onDragEnd(e) {
-                e.target.closest('.pdf-page').classList.remove('dragging');
-                appState.draggedPageIndex = null;
-            },
-            async onDropOnContainer(e) {
+            onDragEnd(e) { e.target.closest('.pdf-page').classList.remove('dragging'); appState.draggedPageIndex = null; },
+            onDropOnContainer(e) {
+                EventHandlers.preventDefaults(e);
                 DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight');
                 const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
-                if (files.length === 0) return UI.showModal("Por favor, solte apenas ficheiros PDF válidos.");
-                await PDF.loadFiles(files);
+                if (files.length > 0) {
+                    const fileObjects = files.map(file => ({ name: file.name, arrayBuffer: () => file.arrayBuffer() }));
+                    appState.pdfWorker.postMessage({ type: 'LOAD_FILES', payload: { files } });
+                } else {
+                    UI.showModal("Por favor, solte apenas ficheiros PDF válidos.");
+                }
             },
             setup() {
+                // Configuração do Worker
+                try {
+                    const workerBlob = new Blob([document.getElementById('pdfWorker').textContent], { type: 'application/javascript' });
+                    appState.pdfWorker = new Worker(URL.createObjectURL(workerBlob));
+                    appState.pdfWorker.onmessage = (event) => {
+                        const { type, payload } = event.data;
+                        switch (type) {
+                            case 'LOAD_SUCCESS':
+                                UI.renderPDFPages(payload.pdfBytes);
+                                break;
+                            case 'OPERATION_SUCCESS':
+                                UI.renderPDFPages(payload.pdfBytes);
+                                if (payload.message) UI.showModal(payload.message);
+                                break;
+                            case 'SPLIT_SUCCESS':
+                                UI.download(payload.pdfBytes, 'pdf_dividido.pdf');
+                                UI.hideLoading();
+                                UI.showModal('Novo PDF criado com sucesso!');
+                                break;
+                            case 'SAVE_SUCCESS':
+                                UI.download(payload.pdfBytes, 'pdf_editado.pdf');
+                                UI.hideLoading();
+                                UI.showModal("PDF salvo com sucesso!");
+                                break;
+                            case 'PROGRESS':
+                                UI.showLoading(payload.message);
+                                break;
+                            case 'ERROR':
+                                UI.hideLoading();
+                                UI.showModal(`Erro: ${payload.message}`);
+                                break;
+                        }
+                    };
+                } catch (e) {
+                    console.error("Erro ao iniciar o Web Worker:", e);
+                    UI.showModal("O seu navegador não suporta Web Workers ou ocorreu um erro. A aplicação pode não funcionar corretamente.");
+                }
+
                 DOM.importInput.addEventListener('change', (e) => {
                     if (e.target.files.length > 0) {
-                        PDF.loadFiles(Array.from(e.target.files));
+                        appState.pdfWorker.postMessage({ type: 'LOAD_FILES', payload: { files: Array.from(e.target.files) } });
                     }
                     e.target.value = '';
                 });
 
-                DOM.buttons.replace.addEventListener('click', PDF.replacePage);
-                DOM.buttons.rotateClockwise.addEventListener('click', () => PDF.rotatePages(90));
-                DOM.buttons.rotateCounterClockwise.addEventListener('click', () => PDF.rotatePages(-90));
-                DOM.buttons.remove.addEventListener('click', PDF.removePages);
-                DOM.buttons.split.addEventListener('click', PDF.split);
-                DOM.buttons.download.addEventListener('click', PDF.save);
+                DOM.buttons.rotateClockwise.addEventListener('click', () => {
+                    UI.showLoading('A girar páginas...');
+                    appState.pdfWorker.postMessage({ type: 'ROTATE', payload: { indices: appState.selectedPageIndices, angle: 90 } });
+                });
+                DOM.buttons.rotateCounterClockwise.addEventListener('click', () => {
+                    UI.showLoading('A girar páginas...');
+                    appState.pdfWorker.postMessage({ type: 'ROTATE', payload: { indices: appState.selectedPageIndices, angle: -90 } });
+                });
+                DOM.buttons.remove.addEventListener('click', () => {
+                    UI.showLoading('A remover páginas...');
+                    appState.pdfWorker.postMessage({ type: 'REMOVE', payload: { indices: appState.selectedPageIndices } });
+                });
+                DOM.buttons.split.addEventListener('click', () => {
+                     UI.showLoading('A dividir PDF...');
+                    appState.pdfWorker.postMessage({ type: 'SPLIT', payload: { indices: appState.selectedPageIndices } });
+                });
+                DOM.buttons.replace.addEventListener('click', () => {
+                    if (appState.selectedPageIndices.length !== 1) return UI.showModal("Selecione uma página para substituir.");
+                    const tempInput = document.createElement('input');
+                    tempInput.type = 'file';
+                    tempInput.accept = '.pdf';
+                    tempInput.onchange = (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        UI.showLoading('A substituir página...');
+                        appState.pdfWorker.postMessage({ type: 'REPLACE', payload: { index: appState.selectedPageIndices[0], file } });
+                    };
+                    tempInput.click();
+                });
+                DOM.buttons.download.addEventListener('click', () => {
+                    UI.showLoading('A salvar PDF...');
+                    appState.pdfWorker.postMessage({ type: 'SAVE' });
+                });
 
                 DOM.modal.closeButton.addEventListener('click', UI.hideModal);
                 DOM.themeToggle.addEventListener('click', () => {
@@ -434,11 +418,11 @@
                 });
 
                 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                    document.body.addEventListener(eventName, this.preventDefaults, false);
+                    document.body.addEventListener(eventName, EventHandlers.preventDefaults, false);
                 });
                 DOM.pdfContainerWrapper.addEventListener('dragenter', () => DOM.pdfContainerWrapper.classList.add('drop-zone-highlight'), false);
                 DOM.pdfContainerWrapper.addEventListener('dragleave', () => DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight'), false);
-                DOM.pdfContainerWrapper.addEventListener('drop', this.onDropOnContainer, false);
+                DOM.pdfContainerWrapper.addEventListener('drop', EventHandlers.onDropOnContainer, false);
             }
         };
 
