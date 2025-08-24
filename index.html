@@ -93,15 +93,12 @@
         /**
          * @file Editor de PDF Pro - Uma ferramenta de manipulação de PDF no lado do cliente.
          * @author HAlexandre
-         * @version 2.2.0
+         * @version 2.3.0
          */
 
         // Configuração do worker da PDF.js
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
-        /**
-         * @description Mapeamento centralizado dos elementos do DOM para fácil acesso e manutenção.
-         */
         const DOM = {
             importInput: document.getElementById('importInput'),
             pdfContainer: document.getElementById('pdfContainer'),
@@ -130,47 +127,28 @@
             signature: document.getElementById('signature')
         };
 
-        /**
-         * @description Objeto que armazena o estado atual da aplicação.
-         */
         const appState = {
-            pdfDocOriginal: null, // Objeto da pdf-js para renderização de previews
-            pdfDocLib: null,      // Objeto da pdf-lib para manipulação do documento
+            pdfDocOriginal: null,
+            pdfDocLib: null,
             selectedPageIndices: [],
             draggedPageIndex: null
         };
 
-        /**
-         * @description Módulo para gerir todas as interações com a interface do utilizador (UI).
-         */
         const UI = {
-            /**
-             * Exibe um modal com uma mensagem.
-             * @param {string} message - A mensagem a ser exibida.
-             */
             showModal(message) {
                 DOM.modal.message.textContent = message;
                 DOM.modal.container.classList.remove('hidden');
             },
-            /** Esconde o modal. */
             hideModal() {
                 DOM.modal.container.classList.add('hidden');
             },
-            /**
-             * Exibe o overlay de carregamento.
-             * @param {string} [message='A carregar...'] - A mensagem a ser exibida durante o carregamento.
-             */
             showLoading(message = 'A carregar...') {
                 DOM.loading.message.textContent = message;
                 DOM.loading.overlay.classList.remove('hidden');
             },
-            /** Esconde o overlay de carregamento. */
             hideLoading() {
                 DOM.loading.overlay.classList.add('hidden');
             },
-            /**
-             * Atualiza o estado (ativado/desativado) dos botões de ação com base no estado da aplicação.
-             */
             updateButtonStates() {
                 const isPdfLoaded = appState.pdfDocLib !== null;
                 const selectedCount = appState.selectedPageIndices.length;
@@ -182,9 +160,6 @@
                 DOM.buttons.download.disabled = !isPdfLoaded;
                 DOM.fileNameInput.disabled = !isPdfLoaded;
             },
-            /**
-             * Renderiza as páginas do PDF carregado como miniaturas na tela.
-             */
             async renderPDFPages() {
                 if (!appState.pdfDocOriginal) return;
                 DOM.pdfContainer.innerHTML = '';
@@ -216,9 +191,6 @@
                 }
                 this.updateButtonStates();
             },
-            /**
-             * Carrega o tema (claro/escuro) salvo no localStorage ou com base na preferência do sistema.
-             */
             loadTheme() {
                 const savedTheme = localStorage.getItem('theme');
                 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -230,9 +202,6 @@
                     DOM.themeToggle.innerHTML = '🌙';
                 }
             },
-            /**
-             * Define a assinatura no rodapé com a data e hora atuais.
-             */
             setSignature() {
                 const now = new Date();
                 const year = now.getFullYear();
@@ -240,58 +209,62 @@
             }
         };
 
-        /**
-         * @description Módulo para gerir todas as operações de manipulação de PDF.
-         */
         const PDF = {
-            /**
-             * Atualiza os objetos de estado do PDF (pdf-lib e pdf.js) e renderiza novamente as páginas.
-             * Esta é uma função central, chamada após qualquer modificação no documento.
-             * @param {PDFLib.PDFDocument} pdfLibDoc - O documento PDF da biblioteca pdf-lib.
-             */
             async updateDocs(pdfLibDoc) {
                 appState.pdfDocLib = pdfLibDoc;
-                // Salvar o documento da pdf-lib para obter os bytes.
                 const pdfBytes = await appState.pdfDocLib.save();
-                // Criar uma cópia do buffer para evitar problemas de estado entre as bibliotecas.
                 const pdfBytesCopy = pdfBytes.slice(0);
-                // Carregar os bytes na pdf.js para renderizar as miniaturas.
                 appState.pdfDocOriginal = await pdfjsLib.getDocument({ data: pdfBytesCopy }).promise;
                 await UI.renderPDFPages();
             },
             /**
-             * Carrega um ou mais ficheiros PDF. Se um PDF já estiver carregado, os novos ficheiros são juntados.
+             * Carrega e processa ficheiros PDF de forma assíncrona para não bloquear a UI.
              * @param {File[]} files - Uma lista de ficheiros a serem carregados.
              */
             async loadFiles(files) {
                 const isMerge = appState.pdfDocLib !== null;
-                const message = isMerge ? `A juntar ${files.length} PDF(s)...` : `A carregar ${files.length} PDF(s)...`;
-                UI.showLoading(message);
-                try {
-                    // Se nenhum PDF estiver carregado, cria um novo documento. Caso contrário, usa o existente.
-                    let currentDoc = isMerge ? appState.pdfDocLib : await PDFLib.PDFDocument.create();
+                let currentDoc = isMerge ? appState.pdfDocLib : await PDFLib.PDFDocument.create();
+                const totalFiles = files.length;
 
-                    for (const file of files) {
+                // Função recursiva para processar um ficheiro de cada vez.
+                const processFile = async (index) => {
+                    // Condição de paragem: todos os ficheiros foram processados.
+                    if (index >= totalFiles) {
+                        try {
+                            UI.showLoading('A finalizar e a renderizar...');
+                            await this.updateDocs(currentDoc);
+                            DOM.initialMessage.classList.add('hidden');
+                            UI.showModal(`${totalFiles} ficheiro(s) processado(s) com sucesso!`);
+                        } catch (e) {
+                            console.error("Erro ao finalizar o documento:", e);
+                            UI.showModal("Ocorreu um erro ao finalizar o documento.");
+                        } finally {
+                            UI.hideLoading();
+                        }
+                        return;
+                    }
+
+                    const file = files[index];
+                    UI.showLoading(`A processar ficheiro ${index + 1} de ${totalFiles}: ${file.name}`);
+                    
+                    try {
                         const arrayBuffer = await file.arrayBuffer();
                         const newPdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
                         const copiedPages = await currentDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
                         copiedPages.forEach(page => currentDoc.addPage(page));
+
+                        // Agenda o processamento do próximo ficheiro, libertando a thread da UI.
+                        setTimeout(() => processFile(index + 1), 50);
+                    } catch (error) {
+                        console.error(`Erro ao processar o ficheiro ${file.name}:`, error);
+                        UI.hideLoading();
+                        UI.showModal(`Ocorreu um erro ao processar o ficheiro "${file.name}". O processo foi interrompido.`);
                     }
-                    
-                    await this.updateDocs(currentDoc);
-                    DOM.initialMessage.classList.add('hidden');
-                    UI.showModal(`${files.length} ficheiro(s) processado(s) com sucesso!`);
-                } catch (error) {
-                    console.error("Erro detalhado ao carregar/juntar PDF:", error);
-                    UI.showModal("Erro ao processar o PDF. Verifique se é um ficheiro válido e não está corrompido.");
-                } finally {
-                    UI.hideLoading();
-                }
+                };
+
+                // Inicia o processamento com o primeiro ficheiro.
+                processFile(0);
             },
-            /**
-             * Gira as páginas selecionadas em um determinado ângulo.
-             * @param {number} angle - O ângulo de rotação (ex: 90 para sentido horário, -90 para anti-horário).
-             */
             async rotatePages(angle) {
                 if (appState.selectedPageIndices.length === 0) return UI.showModal("Selecione as páginas para girar.");
                 UI.showLoading('A girar páginas...');
@@ -304,22 +277,15 @@
                 UI.hideLoading();
                 UI.showModal('Páginas giradas com sucesso!');
             },
-            /**
-             * Remove as páginas selecionadas do documento.
-             */
             async removePages() {
                 if (appState.selectedPageIndices.length === 0) return UI.showModal("Selecione as páginas para remover.");
                 UI.showLoading('A remover páginas...');
-                // Ordenar em ordem decrescente para evitar problemas de índice ao remover múltiplos itens.
                 const sortedIndices = [...appState.selectedPageIndices].sort((a, b) => b - a);
                 sortedIndices.forEach(index => appState.pdfDocLib.removePage(index));
                 await this.updateDocs(appState.pdfDocLib);
                 UI.hideLoading();
                 UI.showModal('Páginas removidas com sucesso!');
             },
-            /**
-             * Cria e faz o download de um novo PDF contendo apenas as páginas selecionadas.
-             */
             async split() {
                 if (appState.selectedPageIndices.length === 0) return UI.showModal("Selecione as páginas para criar um novo PDF.");
                 UI.showLoading('A dividir PDF...');
@@ -332,9 +298,6 @@
                 UI.hideLoading();
                 UI.showModal('Novo PDF criado com sucesso a partir das páginas selecionadas!');
             },
-            /**
-             * Substitui uma única página selecionada pela primeira página de um novo ficheiro PDF.
-             */
             async replacePage() {
                 if (appState.selectedPageIndices.length !== 1) return UI.showModal("Por favor, selecione exatamente uma página para substituir.");
                 
@@ -367,11 +330,6 @@
                 };
                 tempInput.click();
             },
-            /**
-             * Inicia o download de um ficheiro PDF a partir de um array de bytes.
-             * @param {Uint8Array} bytes - O conteúdo do PDF como um array de bytes.
-             * @param {string} defaultName - O nome do ficheiro padrão para o download.
-             */
             download(bytes, defaultName) {
                 const blob = new Blob([bytes], { type: 'application/pdf' });
                 const link = document.createElement('a');
@@ -383,37 +341,37 @@
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                URL.revokeObjectURL(link.href); // Libera a memória do objeto URL
+                URL.revokeObjectURL(link.href);
             },
             /**
-             * Salva o documento PDF atualmente em edição.
+             * Salva o documento PDF atual, com uma mensagem informativa para operações longas.
              */
             async save() {
                 if (!appState.pdfDocLib) return UI.showModal("Nenhum PDF carregado para salvar.");
-                UI.showLoading('A salvar PDF...');
-                const pdfBytes = await appState.pdfDocLib.save();
-                this.download(pdfBytes, "pdf_editado.pdf");
-                UI.hideLoading();
-                UI.showModal("PDF salvo com sucesso!");
+
+                UI.showLoading('A construir o PDF... Isto pode demorar, por favor, aguarde.');
+
+                // Usa setTimeout para garantir que a UI atualiza a mensagem antes de iniciar a tarefa pesada.
+                setTimeout(async () => {
+                    try {
+                        const pdfBytes = await appState.pdfDocLib.save();
+                        this.download(pdfBytes, "pdf_editado.pdf");
+                        UI.hideLoading();
+                        UI.showModal("PDF salvo com sucesso!");
+                    } catch (error) {
+                        console.error("Erro ao salvar o PDF:", error);
+                        UI.hideLoading();
+                        UI.showModal("Ocorreu um erro ao salvar o PDF. Tente novamente.");
+                    }
+                }, 50);
             }
         };
 
-        /**
-         * @description Módulo para gerir todos os manipuladores de eventos da aplicação.
-         */
         const EventHandlers = {
-            /**
-             * Previne o comportamento padrão de eventos, usado principalmente para drag and drop.
-             * @param {Event} e - O objeto do evento.
-             */
             preventDefaults(e) {
                 e.preventDefault();
                 e.stopPropagation();
             },
-            /**
-             * Manipula o clique em uma página, adicionando-a ou removendo-a da seleção.
-             * @param {MouseEvent} e - O evento de clique.
-             */
             onPageClick(e) {
                 const pageDiv = e.currentTarget;
                 const clickedIndex = parseInt(pageDiv.dataset.index);
@@ -427,22 +385,18 @@
                 }
                 UI.updateButtonStates();
             },
-            /** Manipula o início do arrasto de uma página. */
             onDragStart(e) {
                 const pageElement = e.target.closest('.pdf-page');
                 appState.draggedPageIndex = parseInt(pageElement.dataset.index);
                 pageElement.classList.add('dragging');
             },
-            /** Manipula o evento de arrastar sobre outra página. */
             onDragOver(e) {
                 e.preventDefault();
                 e.target.closest('.pdf-page')?.classList.add('drag-over');
             },
-            /** Manipula o evento de sair da área de uma página enquanto arrasta. */
             onDragLeave(e) {
                 e.target.closest('.pdf-page')?.classList.remove('drag-over');
             },
-            /** Manipula o evento de soltar uma página sobre outra para reordenar. */
             async onDropOnPage(e) {
                 e.preventDefault();
                 const targetElement = e.target.closest('.pdf-page');
@@ -458,31 +412,24 @@
                     UI.hideLoading();
                 }
             },
-            /** Manipula o fim do arrasto de uma página. */
             onDragEnd(e) {
                 e.target.closest('.pdf-page').classList.remove('dragging');
                 appState.draggedPageIndex = null;
             },
-            /** Manipula o evento de soltar ficheiros na área do container. */
             async onDropOnContainer(e) {
                 DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight');
                 const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
                 if (files.length === 0) return UI.showModal("Por favor, solte apenas ficheiros PDF válidos.");
                 await PDF.loadFiles(files);
             },
-            /**
-             * Configura todos os event listeners iniciais da aplicação.
-             */
             setup() {
-                // Input de ficheiro
                 DOM.importInput.addEventListener('change', (e) => {
                     if (e.target.files.length > 0) {
                         PDF.loadFiles(Array.from(e.target.files));
                     }
-                    e.target.value = ''; // Limpa o input para permitir a seleção dos mesmos ficheiros novamente
+                    e.target.value = '';
                 });
 
-                // Botões de ação
                 DOM.buttons.replace.addEventListener('click', PDF.replacePage);
                 DOM.buttons.rotateClockwise.addEventListener('click', () => PDF.rotatePages(90));
                 DOM.buttons.rotateCounterClockwise.addEventListener('click', () => PDF.rotatePages(-90));
@@ -490,7 +437,6 @@
                 DOM.buttons.split.addEventListener('click', PDF.split);
                 DOM.buttons.download.addEventListener('click', PDF.save);
 
-                // UI
                 DOM.modal.closeButton.addEventListener('click', UI.hideModal);
                 DOM.themeToggle.addEventListener('click', () => {
                     DOM.htmlEl.classList.toggle('dark');
@@ -499,18 +445,15 @@
                     DOM.themeToggle.innerHTML = isDark ? '☀️' : '🌙';
                 });
 
-                // Drag and Drop Global
                 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
                     document.body.addEventListener(eventName, this.preventDefaults, false);
                 });
-                // Drag and Drop na área do container
                 DOM.pdfContainerWrapper.addEventListener('dragenter', () => DOM.pdfContainerWrapper.classList.add('drop-zone-highlight'), false);
                 DOM.pdfContainerWrapper.addEventListener('dragleave', () => DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight'), false);
                 DOM.pdfContainerWrapper.addEventListener('drop', this.onDropOnContainer, false);
             }
         };
 
-        // --- Ponto de Entrada da Aplicação ---
         document.addEventListener('DOMContentLoaded', () => {
             UI.updateButtonStates();
             UI.loadTheme();
