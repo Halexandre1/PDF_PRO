@@ -93,7 +93,7 @@
         /**
          * @file Editor de PDF Pro - Uma ferramenta de manipulação de PDF no lado do cliente.
          * @author HAlexandre
-         * @version 2.3.0
+         * @version 2.4.0
          */
 
         // Configuração do worker da PDF.js
@@ -217,18 +217,12 @@
                 appState.pdfDocOriginal = await pdfjsLib.getDocument({ data: pdfBytesCopy }).promise;
                 await UI.renderPDFPages();
             },
-            /**
-             * Carrega e processa ficheiros PDF de forma assíncrona para não bloquear a UI.
-             * @param {File[]} files - Uma lista de ficheiros a serem carregados.
-             */
             async loadFiles(files) {
                 const isMerge = appState.pdfDocLib !== null;
                 let currentDoc = isMerge ? appState.pdfDocLib : await PDFLib.PDFDocument.create();
                 const totalFiles = files.length;
 
-                // Função recursiva para processar um ficheiro de cada vez.
                 const processFile = async (index) => {
-                    // Condição de paragem: todos os ficheiros foram processados.
                     if (index >= totalFiles) {
                         try {
                             UI.showLoading('A finalizar e a renderizar...');
@@ -253,7 +247,6 @@
                         const copiedPages = await currentDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
                         copiedPages.forEach(page => currentDoc.addPage(page));
 
-                        // Agenda o processamento do próximo ficheiro, libertando a thread da UI.
                         setTimeout(() => processFile(index + 1), 50);
                     } catch (error) {
                         console.error(`Erro ao processar o ficheiro ${file.name}:`, error);
@@ -261,8 +254,6 @@
                         UI.showModal(`Ocorreu um erro ao processar o ficheiro "${file.name}". O processo foi interrompido.`);
                     }
                 };
-
-                // Inicia o processamento com o primeiro ficheiro.
                 processFile(0);
             },
             async rotatePages(angle) {
@@ -343,27 +334,24 @@
                 document.body.removeChild(link);
                 URL.revokeObjectURL(link.href);
             },
-            /**
-             * Salva o documento PDF atual, com uma mensagem informativa para operações longas.
-             */
             async save() {
                 if (!appState.pdfDocLib) return UI.showModal("Nenhum PDF carregado para salvar.");
 
                 UI.showLoading('A construir o PDF... Isto pode demorar, por favor, aguarde.');
+                
+                // Aguarda um curto período para garantir que a mensagem de loading seja renderizada.
+                await new Promise(resolve => setTimeout(resolve, 50));
 
-                // Usa setTimeout para garantir que a UI atualiza a mensagem antes de iniciar a tarefa pesada.
-                setTimeout(async () => {
-                    try {
-                        const pdfBytes = await appState.pdfDocLib.save();
-                        this.download(pdfBytes, "pdf_editado.pdf");
-                        UI.hideLoading();
-                        UI.showModal("PDF salvo com sucesso!");
-                    } catch (error) {
-                        console.error("Erro ao salvar o PDF:", error);
-                        UI.hideLoading();
-                        UI.showModal("Ocorreu um erro ao salvar o PDF. Tente novamente.");
-                    }
-                }, 50);
+                try {
+                    const pdfBytes = await appState.pdfDocLib.save();
+                    this.download(pdfBytes, "pdf_editado.pdf");
+                    UI.showModal("PDF salvo com sucesso!");
+                } catch (error) {
+                    console.error("Erro ao salvar o PDF:", error);
+                    UI.showModal("Ocorreu um erro ao salvar o PDF. Tente novamente.");
+                } finally {
+                    UI.hideLoading();
+                }
             }
         };
 
