@@ -10,14 +10,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
-      // Configuração do Tailwind para usar a classe 'dark'
-      tailwind.config = {
-        darkMode: 'class',
-      }
+        // Configuração do Tailwind para usar a classe 'dark'
+        tailwind.config = {
+            darkMode: 'class',
+        }
     </script>
     <style>
         :root { --accent-color: #4f46e5; }
         body { font-family: 'Inter', sans-serif; transition: background-color 0.3s, color 0.3s; }
+        .pdf-page {
+            position: relative; /* Adicionado para posicionar o número da página */
+        }
         .pdf-page.selected { border-color: var(--accent-color); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.5); }
         .pdf-container-wrapper::-webkit-scrollbar { display: none; }
         .pdf-container-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
@@ -26,6 +29,18 @@
         .pdf-page.dragging { opacity: 0.5; cursor: grabbing; }
         .pdf-page.drag-over { box-shadow: 0 0 0 4px var(--accent-color); }
         .drop-zone-highlight { border-color: var(--accent-color) !important; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.5) !important; }
+        .page-number {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 9999px; /* pill shape */
+            font-size: 12px;
+            font-weight: 500;
+            pointer-events: none; /* Garante que o número não interfira com cliques na página */
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center p-4 font-sans bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-200">
@@ -73,19 +88,13 @@
     <div id="customModal" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50 hidden"><div class="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-xl max-w-sm w-full text-center"><p id="modalMessage" class="text-lg font-semibold mb-4"></p><button id="modalCloseButton" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-300 ease-in-out">OK</button></div></div>
     <div id="loadingOverlay" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center z-50 hidden"><div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-24 w-24 mb-4" style="border-top-color: #6366f1;"></div><p id="loadingMessage" class="text-white text-xl font-semibold">A carregar...</p></div>
 
-    <!-- Bibliotecas Externas -->
     <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     
-    <!-- O pdf-lib será carregado dentro do Worker -->
-
-    <!-- Script do Worker -->
     <script id="pdfWorker" type="javascript/worker">
-        // Importa a biblioteca pdf-lib para dentro do worker
         self.importScripts('https://unpkg.com/pdf-lib/dist/pdf-lib.min.js');
 
         let pdfDoc = null;
 
-        // Listener para mensagens da thread principal
         self.onmessage = async (event) => {
             const { type, payload } = event.data;
 
@@ -98,7 +107,6 @@
                         }
                         for (let i = 0; i < files.length; i++) {
                             const file = files[i];
-                            // Envia o progresso de volta para a thread principal
                             self.postMessage({ type: 'PROGRESS', payload: { message: `A processar ficheiro ${i + 1} de ${files.length}: ${file.name}` } });
                             const arrayBuffer = await file.arrayBuffer();
                             const newPdfDoc = await self.PDFLib.PDFDocument.load(arrayBuffer);
@@ -122,7 +130,6 @@
                     }
                     case 'REMOVE': {
                         const { indices } = payload;
-                        // Ordenar em ordem decrescente para evitar problemas de índice
                         const sortedIndices = [...indices].sort((a, b) => b - a);
                         sortedIndices.forEach(index => pdfDoc.removePage(index));
                         const pdfBytes = await pdfDoc.save();
@@ -133,7 +140,6 @@
                         const { fromIndex, toIndex } = payload;
                         const [movedPage] = await pdfDoc.copyPages(pdfDoc, [fromIndex]);
                         pdfDoc.removePage(fromIndex);
-                        // Ajusta o índice de inserção se a página for movida para uma posição anterior
                         const insertIndex = fromIndex < toIndex ? toIndex -1 : toIndex;
                         pdfDoc.insertPage(insertIndex, movedPage);
                         const pdfBytes = await pdfDoc.save();
@@ -179,9 +185,9 @@
 
     <script>
         /**
-         * @file Editor de PDF Pro - Uma ferramenta de manipulação de PDF no lado do cliente com Web Worker.
+         * @file Editor de PDF Pro - Versão Final Revisada
          * @author HAlexandre
-         * @version 3.1.0
+         * @version 3.1.1
          */
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
@@ -208,8 +214,8 @@
         };
 
         const appState = {
-            pdfDocOriginal: null, // Objeto da pdf.js para renderização
-            selectedPageIndices: new Set(), // Usar Set para evitar duplicados e ter remoção mais eficiente
+            pdfDocOriginal: null,
+            selectedPageIndices: new Set(),
             draggedPageIndex: null,
             pdfWorker: null
         };
@@ -238,11 +244,11 @@
                     DOM.pdfContainer.innerHTML = '';
                     appState.selectedPageIndices.clear();
 
-                    const renderQueue = [];
+                    const renderPromises = [];
                     for (let i = 0; i < appState.pdfDocOriginal.numPages; i++) {
-                        renderQueue.push(this.createPageElement(i));
+                        renderPromises.push(this.createPageElement(i));
                     }
-                    await Promise.all(renderQueue);
+                    await Promise.all(renderPromises);
 
                 } catch (error) {
                     console.error("Erro ao renderizar PDF:", error);
@@ -266,6 +272,12 @@
                 pageDiv.appendChild(canvas);
                 pageDiv.dataset.index = index;
                 pageDiv.draggable = true;
+
+                // Cria e adiciona o número da página
+                const pageNumber = document.createElement('div');
+                pageNumber.className = 'page-number';
+                pageNumber.textContent = index + 1;
+                pageDiv.appendChild(pageNumber);
 
                 pageDiv.addEventListener('click', EventHandlers.onPageClick);
                 pageDiv.addEventListener('dragstart', EventHandlers.onDragStart);
@@ -324,7 +336,6 @@
                 const pageElement = e.target.closest('.pdf-page');
                 if (!pageElement) return;
                 appState.draggedPageIndex = parseInt(pageElement.dataset.index);
-                // Adiciona um pequeno delay para garantir que o navegador crie a imagem de arrasto
                 setTimeout(() => pageElement.classList.add('dragging'), 0);
             },
             onDragOver(e) { e.preventDefault(); e.target.closest('.pdf-page')?.classList.add('drag-over'); },
@@ -344,9 +355,7 @@
             },
             onDragEnd(e) {
                 const pageElement = e.target.closest('.pdf-page');
-                if (pageElement) {
-                    pageElement.classList.remove('dragging');
-                }
+                if (pageElement) pageElement.classList.remove('dragging');
                 appState.draggedPageIndex = null; 
             },
             onDropOnContainer(e) {
@@ -361,7 +370,6 @@
                 }
             },
             setup() {
-                // Configuração do Worker
                 try {
                     const workerBlob = new Blob([document.getElementById('pdfWorker').textContent], { type: 'application/javascript' });
                     appState.pdfWorker = new Worker(URL.createObjectURL(workerBlob));
@@ -475,3 +483,4 @@
     </script>
 </body>
 </html>
+
