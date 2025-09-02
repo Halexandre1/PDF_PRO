@@ -19,9 +19,14 @@
         :root { --accent-color: #4f46e5; }
         body { font-family: 'Inter', sans-serif; transition: background-color 0.3s, color 0.3s; }
         .pdf-page {
-            position: relative; /* Adicionado para posicionar o número da página */
+            position: relative; /* Mantido para posicionar elementos filhos */
+            transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; /* Adicionado para animar a seleção */
         }
-        .pdf-page.selected { border-color: var(--accent-color); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.5); }
+        .pdf-page.selected {
+            border-color: var(--accent-color);
+            box-shadow: 0 5px 15px rgba(79, 70, 229, 0.4); /* Sombra mais destacada */
+            transform: scale(1.03); /* Efeito de zoom suave */
+        }
         .pdf-container-wrapper::-webkit-scrollbar { display: none; }
         .pdf-container-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
         .loader { border-right-color: transparent !important; animation: spin 1s linear infinite; }
@@ -32,7 +37,7 @@
         .page-number {
             position: absolute;
             bottom: 8px;
-            right: 8px;
+            left: 8px; /* Movido para a esquerda para não conflitar com o check */
             background-color: rgba(0, 0, 0, 0.6);
             color: white;
             padding: 2px 8px;
@@ -40,6 +45,31 @@
             font-size: 12px;
             font-weight: 500;
             pointer-events: none; /* Garante que o número não interfira com cliques na página */
+            z-index: 5;
+        }
+
+        /* NOVO: Estilo para o indicador de seleção (check mark) */
+        .selection-indicator {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 28px;
+            height: 28px;
+            background-color: var(--accent-color);
+            color: white;
+            border-radius: 50%;
+            display: none; /* Escondido por padrão */
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            border: 2px solid white;
+        }
+
+        /* Mostra o indicador quando a página está selecionada */
+        .pdf-page.selected .selection-indicator {
+            display: flex;
         }
     </style>
 </head>
@@ -268,10 +298,16 @@
                 canvas.width = viewport.width;
 
                 const pageDiv = document.createElement('div');
-                pageDiv.className = 'pdf-page border-2 border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer m-2 inline-block transition-all duration-200 ease-in-out hover:shadow-lg';
+                pageDiv.className = 'pdf-page border-2 border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer m-2 inline-block hover:shadow-lg';
                 pageDiv.appendChild(canvas);
                 pageDiv.dataset.index = index;
                 pageDiv.draggable = true;
+
+                // Cria e adiciona o indicador de seleção (check mark)
+                const selectionIndicator = document.createElement('div');
+                selectionIndicator.className = 'selection-indicator';
+                selectionIndicator.innerHTML = `<i class="fas fa-check"></i>`;
+                pageDiv.appendChild(selectionIndicator);
 
                 // Cria e adiciona o número da página
                 const pageNumber = document.createElement('div');
@@ -483,4 +519,5 @@
     </script>
 </body>
 </html>
+
 
