@@ -1,125 +1,215 @@
 <!DOCTYPE html>
-<html lang="pt-BR" class="">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Editor de PDF PRO</title>
+    <meta name="description" content="Editor de PDF Profissional via Browser. Junte, gire, organize e edite seus PDFs localmente com segurança. Desenvolvido por HAlexandre.">
+    <meta name="author" content="HAlexandre">
+    <meta name="theme-color" content="#4f46e5">
+    
+    <title>Editor de PDF PRO - HAlexandre</title>
+    
+    <!-- Favicon via Data URI para não depender de arquivos externos -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📄</text></svg>">
+
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
     <script>
-        // Configuração do Tailwind para usar a classe 'dark'
         tailwind.config = {
             darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
         }
     </script>
     <style>
         :root { --accent-color: #4f46e5; }
-        body { font-family: 'Inter', sans-serif; transition: background-color 0.3s, color 0.3s; }
+        body { transition: background-color 0.3s, color 0.3s; }
+        
+        /* Otimização de Scrollbar */
+        .pdf-container-wrapper::-webkit-scrollbar { width: 8px; height: 8px; }
+        .pdf-container-wrapper::-webkit-scrollbar-track { background: transparent; }
+        .pdf-container-wrapper::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.5); border-radius: 20px; }
+        
+        /* Animações e Estados */
         .pdf-page {
-            position: relative; /* Mantido para posicionar elementos filhos */
-            transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; /* Adicionado para animar a seleção */
+            position: relative;
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease-out, border-color 0.2s;
+            will-change: transform;
         }
         .pdf-page.selected {
             border-color: var(--accent-color);
-            box-shadow: 0 5px 15px rgba(79, 70, 229, 0.4); /* Sombra mais destacada */
-            transform: scale(1.03); /* Efeito de zoom suave */
+            box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4), 0 8px 10px -6px rgba(79, 70, 229, 0.1);
+            transform: scale(1.02);
+            z-index: 10;
         }
-        .pdf-container-wrapper::-webkit-scrollbar { display: none; }
-        .pdf-container-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
+        .pdf-page.dragging { opacity: 0.4; cursor: grabbing; transform: scale(0.95); }
+        .pdf-page.drag-over { 
+            box-shadow: 0 0 0 4px var(--accent-color);
+            transform: scale(1.05);
+            z-index: 20;
+        }
+        .drop-zone-highlight { 
+            border-color: var(--accent-color) !important; 
+            background-color: rgba(79, 70, 229, 0.05);
+            box-shadow: inset 0 0 0 2px var(--accent-color) !important; 
+        }
+
+        /* Elementos UI */
         .loader { border-right-color: transparent !important; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .pdf-page.dragging { opacity: 0.5; cursor: grabbing; }
-        .pdf-page.drag-over { box-shadow: 0 0 0 4px var(--accent-color); }
-        .drop-zone-highlight { border-color: var(--accent-color) !important; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.5) !important; }
+        
         .page-number {
-            position: absolute;
-            bottom: 8px;
-            left: 8px; /* Movido para a esquerda para não conflitar com o check */
-            background-color: rgba(0, 0, 0, 0.6);
-            color: white;
-            padding: 2px 8px;
-            border-radius: 9999px; /* pill shape */
-            font-size: 12px;
-            font-weight: 500;
-            pointer-events: none; /* Garante que o número não interfira com cliques na página */
-            z-index: 5;
+            position: absolute; bottom: 8px; left: 8px;
+            background-color: rgba(15, 23, 42, 0.75); backdrop-filter: blur(2px);
+            color: white; padding: 2px 8px; border-radius: 9999px;
+            font-size: 11px; font-weight: 600; pointer-events: none; z-index: 5;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-
-        /* NOVO: Estilo para o indicador de seleção (check mark) */
         .selection-indicator {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            width: 28px;
-            height: 28px;
-            background-color: var(--accent-color);
-            color: white;
-            border-radius: 50%;
-            display: none; /* Escondido por padrão */
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-            z-index: 10;
-            border: 2px solid white;
+            position: absolute; top: 8px; right: 8px;
+            width: 24px; height: 24px;
+            background-color: var(--accent-color); color: white;
+            border-radius: 50%; display: none;
+            align-items: center; justify-content: center;
+            font-size: 12px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10; border: 2px solid white;
         }
-
-        /* Mostra o indicador quando a página está selecionada */
-        .pdf-page.selected .selection-indicator {
-            display: flex;
-        }
+        .pdf-page.selected .selection-indicator { display: flex; animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center p-4 font-sans bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-200">
+<body class="min-h-screen flex flex-col items-center p-4 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-200 selection:bg-indigo-500 selection:text-white">
 
-    <div class="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-xl w-full max-w-5xl">
-        <header class="flex justify-between items-start mb-4">
-            <div class="flex items-center gap-4">
-                <img src="https://raw.githubusercontent.com/Halexandre1/PDF_PRO/main/HERBERT.jpg" alt="Logótipo do Editor de PDF PRO" class="w-12 h-12 rounded-md">
+    <div class="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-6xl transition-colors duration-300">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-center gap-4 mb-8 border-b border-slate-100 dark:border-slate-700 pb-6">
+            <div class="flex items-center gap-4 w-full md:w-auto">
+                <div class="relative group">
+                    <img src="https://raw.githubusercontent.com/Halexandre1/PDF_PRO/main/HERBERT.jpg" alt="Logo HAlexandre" class="w-16 h-16 rounded-xl shadow-md object-cover border-2 border-white dark:border-slate-700 group-hover:scale-105 transition-transform duration-300">
+                    <div class="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/10 dark:ring-white/10"></div>
+                </div>
                 <div>
-                    <h2 class="text-3xl font-bold text-indigo-700 dark:text-indigo-400">Editor de PDF PRO</h2>
-                    <p class="text-gray-600 dark:text-gray-400">Importe, junte, substitua, gire, reordene e salve os seus PDFs com facilidade.</p>
+                    <h1 class="text-2xl md:text-3xl font-extrabold text-indigo-700 dark:text-indigo-400 tracking-tight">Editor de PDF PRO</h1>
+                    <p class="text-slate-500 dark:text-slate-400 text-sm font-medium">Produtividade máxima, sem upload para servidores.</p>
                 </div>
             </div>
-            <button id="themeToggle" class="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center transition-transform hover:scale-110" aria-label="Alternar tema">🌙</button>
+            <button id="themeToggle" class="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-all hover:bg-indigo-100 dark:hover:bg-indigo-900/30 focus:outline-none focus:ring-2 focus:ring-indigo-500" aria-label="Alternar tema">
+                <i class="fas fa-moon text-lg"></i>
+            </button>
         </header>
 
-        <section class="mb-6">
-            <label for="importInput" class="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out w-full flex items-center justify-center gap-2">
-                <i class="fas fa-file-import"></i> Importar PDF(s)
+        <!-- Área de Ação Principal -->
+        <section class="mb-8">
+            <label for="importInput" class="group cursor-pointer bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-5 px-6 rounded-2xl shadow-lg shadow-indigo-500/25 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-3 w-full border border-white/10">
+                <i class="fas fa-plus-circle text-2xl group-hover:rotate-90 transition-transform duration-300"></i> 
+                <span class="text-lg">Selecionar Arquivos PDF</span>
                 <input type="file" id="importInput" accept=".pdf" class="hidden" multiple />
             </label>
         </section>
 
-        <section class="flex flex-wrap items-center justify-center gap-4 mb-6 p-4 bg-gray-50 dark:bg-slate-800/50 rounded-lg">
-            <button id="replaceButton" class="flex items-center justify-center bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out disabled:opacity-50" disabled><i class="fas fa-exchange-alt mr-2"></i> Substituir</button>
-            <button id="rotateClockwiseButton" class="flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out disabled:opacity-50" disabled><i class="fas fa-redo-alt mr-2"></i> Girar 90°</button>
-            <button id="rotateCounterClockwiseButton" class="flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out disabled:opacity-50" disabled><i class="fas fa-undo-alt mr-2"></i> Girar -90°</button>
-            <button id="removeButton" class="flex items-center justify-center bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out disabled:opacity-50" disabled><i class="fas fa-trash-alt mr-2"></i> Remover</button>
-            <button id="splitButton" class="flex items-center justify-center bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out disabled:opacity-50" disabled><i class="fas fa-cut mr-2"></i> Dividir</button>
+        <!-- Barra de Ferramentas -->
+        <section class="flex flex-wrap items-center justify-center gap-3 mb-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+            <button id="replaceButton" class="tool-btn bg-orange-500 hover:bg-orange-600" disabled><i class="fas fa-sync-alt mr-2"></i> Substituir</button>
+            <div class="h-8 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
+            <button id="rotateClockwiseButton" class="tool-btn bg-blue-600 hover:bg-blue-700" disabled><i class="fas fa-redo-alt mr-2"></i> 90°</button>
+            <button id="rotateCounterClockwiseButton" class="tool-btn bg-blue-500 hover:bg-blue-600" disabled><i class="fas fa-undo-alt mr-2"></i> -90°</button>
+            <div class="h-8 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
+            <button id="splitButton" class="tool-btn bg-purple-600 hover:bg-purple-700" disabled><i class="fas fa-cut mr-2"></i> Extrair</button>
+            <button id="removeButton" class="tool-btn bg-red-500 hover:bg-red-600" disabled><i class="fas fa-trash-alt mr-2"></i> Excluir</button>
+            
+            <style>
+                .tool-btn {
+                    display: flex; align-items: center; justify-content: center;
+                    color: white; font-weight: 600; font-size: 0.9rem;
+                    padding: 0.6rem 1rem; border-radius: 0.75rem;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                    transition: all 0.2s; opacity: 1; transform: scale(1);
+                }
+                .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: scale(0.98); box-shadow: none; filter: grayscale(0.5); }
+                .tool-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.1); }
+                .tool-btn:not(:disabled):active { transform: translateY(0); }
+            </style>
         </section>
         
-        <section class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
-            <input type="text" id="fileNameInput" placeholder="Nome do ficheiro (ex: meu_documento.pdf)" class="flex-grow p-3 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-700" value="pdf_editado.pdf">
-            <button id="downloadButton" class="flex items-center justify-center bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out disabled:opacity-50" disabled><i class="fas fa-save mr-2"></i> Salvar PDF</button>
+        <!-- Área de Download -->
+        <section class="flex flex-col md:flex-row items-center justify-center gap-4 mb-6 bg-white dark:bg-slate-800 p-2 rounded-xl">
+            <div class="relative w-full md:w-auto flex-grow max-w-lg">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <i class="fas fa-file-signature"></i>
+                </div>
+                <input type="text" id="fileNameInput" placeholder="Nome do arquivo final" class="w-full pl-10 pr-4 py-3 border-2 border-slate-200 dark:border-slate-600 rounded-xl focus:ring-0 focus:border-indigo-500 bg-slate-50 dark:bg-slate-900/50 outline-none transition-all font-medium" value="documento_editado.pdf">
+                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded my-2">.PDF</div>
+            </div>
+            <button id="downloadButton" class="w-full md:w-auto flex items-center justify-center bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-105 active:scale-100" disabled>
+                <i class="fas fa-download mr-2"></i> Baixar PDF
+            </button>
         </section>
 
-        <main id="pdfContainerWrapper" class="pdf-container-wrapper flex flex-wrap justify-center gap-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 min-h-[300px] max-h-[600px] overflow-y-auto transition-all duration-200 ease-in-out">
-            <p id="initialMessage" class="text-gray-500 dark:text-gray-400 text-lg self-center">Arraste e solte um ou mais PDFs aqui.</p>
-            <div id="pdfContainer" class="flex flex-wrap justify-center gap-4"></div>
+        <!-- Container Principal (Visualização) -->
+        <main id="pdfContainerWrapper" class="pdf-container-wrapper relative flex flex-wrap justify-center gap-4 p-8 bg-slate-100 dark:bg-slate-900/50 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 min-h-[400px] max-h-[650px] overflow-y-auto transition-all">
+            <div id="initialMessage" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 pointer-events-none">
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-full mb-4 shadow-sm">
+                    <i class="fas fa-cloud-upload-alt text-6xl text-indigo-200 dark:text-slate-600"></i>
+                </div>
+                <p class="text-xl font-semibold mb-2">Sua área de trabalho está vazia</p>
+                <p class="text-sm opacity-75">Arraste arquivos PDF para cá ou use o botão adicionar</p>
+            </div>
+            <div id="pdfContainer" class="flex flex-wrap justify-center gap-4 w-full z-10 pb-10"></div>
         </main>
-        <footer id="signature" class="text-center mt-4 text-sm text-gray-500 dark:text-gray-400"></footer>
+
+        <!-- Footer -->
+        <footer class="mt-8 pt-6 border-t border-slate-100 dark:border-slate-700 flex flex-col items-center gap-3">
+            <p id="signature" class="text-slate-600 dark:text-slate-400 font-semibold text-sm flex items-center gap-2">
+                <span>Feito com <i class="fas fa-heart text-red-500 mx-0.5 animate-pulse"></i> por HAlexandre</span>
+            </p>
+            <div class="flex gap-4 text-slate-400 text-[10px] uppercase tracking-widest font-bold opacity-60">
+                <span>Versão 3.2.0 (Final)</span>
+                <span>•</span>
+                <span>Privacidade Garantida</span>
+            </div>
+        </footer>
     </div>
 
-    <!-- Modal e Overlay de Carregamento -->
-    <div id="customModal" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50 hidden"><div class="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-xl max-w-sm w-full text-center"><p id="modalMessage" class="text-lg font-semibold mb-4"></p><button id="modalCloseButton" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-300 ease-in-out">OK</button></div></div>
-    <div id="loadingOverlay" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center z-50 hidden"><div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-24 w-24 mb-4" style="border-top-color: #6366f1;"></div><p id="loadingMessage" class="text-white text-xl font-semibold">A carregar...</p></div>
+    <!-- Modais e Overlays -->
+    <div id="customModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center border border-slate-100 dark:border-slate-700 transform scale-95 transition-transform duration-300">
+            <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-indigo-100 dark:bg-indigo-900/30 mb-6">
+                <i id="modalIcon" class="fas fa-info text-2xl text-indigo-600 dark:text-indigo-400"></i>
+            </div>
+            <p id="modalMessage" class="text-slate-700 dark:text-slate-200 text-lg font-medium mb-8 leading-relaxed"></p>
+            <button id="modalCloseButton" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl transition-all hover:shadow-lg hover:shadow-indigo-500/25">Entendido</button>
+        </div>
+    </div>
 
+    <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex flex-col items-center justify-center z-[110] hidden transition-opacity duration-300">
+        <div class="relative">
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-600 dark:border-slate-500 h-16 w-16" style="border-top-color: #6366f1;"></div>
+            <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-500">PDF</div>
+        </div>
+        <p id="loadingMessage" class="text-white text-lg font-medium mt-6 tracking-wide animate-pulse">Processando...</p>
+    </div>
+
+    <!-- Scripts Externos -->
     <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     
+    <!-- Worker Script (Lógica Pesada) -->
     <script id="pdfWorker" type="javascript/worker">
         self.importScripts('https://unpkg.com/pdf-lib/dist/pdf-lib.min.js');
 
@@ -127,17 +217,13 @@
 
         self.onmessage = async (event) => {
             const { type, payload } = event.data;
-
             try {
                 switch (type) {
                     case 'LOAD_FILES': {
-                        const { files } = payload;
-                        if (!pdfDoc) {
-                            pdfDoc = await self.PDFLib.PDFDocument.create();
-                        }
-                        for (let i = 0; i < files.length; i++) {
-                            const file = files[i];
-                            self.postMessage({ type: 'PROGRESS', payload: { message: `A processar ficheiro ${i + 1} de ${files.length}: ${file.name}` } });
+                        if (!pdfDoc) pdfDoc = await self.PDFLib.PDFDocument.create();
+                        for (let i = 0; i < payload.files.length; i++) {
+                            const file = payload.files[i];
+                            self.postMessage({ type: 'PROGRESS', payload: { message: `Lendo ${file.name}...` } });
                             const arrayBuffer = await file.arrayBuffer();
                             const newPdfDoc = await self.PDFLib.PDFDocument.load(arrayBuffer);
                             const copiedPages = await pdfDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
@@ -148,53 +234,46 @@
                         break;
                     }
                     case 'ROTATE': {
-                        const { indices, angle } = payload;
-                        indices.forEach(index => {
+                        payload.indices.forEach(index => {
                             const page = pdfDoc.getPage(index);
                             const currentRotation = page.getRotation().angle;
-                            page.setRotation(self.PDFLib.degrees(currentRotation + angle));
+                            page.setRotation(self.PDFLib.degrees(currentRotation + payload.angle));
                         });
                         const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas giradas com sucesso!' } });
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas giradas com sucesso.' } });
                         break;
                     }
                     case 'REMOVE': {
-                        const { indices } = payload;
-                        const sortedIndices = [...indices].sort((a, b) => b - a);
-                        sortedIndices.forEach(index => pdfDoc.removePage(index));
+                        // Ordena decrescente para não afetar índices durante remoção
+                        [...payload.indices].sort((a, b) => b - a).forEach(index => pdfDoc.removePage(index));
                         const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas removidas com sucesso!' } });
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas removidas.' } });
                         break;
                     }
                     case 'REORDER': {
                         const { fromIndex, toIndex } = payload;
                         const [movedPage] = await pdfDoc.copyPages(pdfDoc, [fromIndex]);
                         pdfDoc.removePage(fromIndex);
-                        const insertIndex = fromIndex < toIndex ? toIndex -1 : toIndex;
-                        pdfDoc.insertPage(insertIndex, movedPage);
+                        pdfDoc.insertPage(toIndex, movedPage);
                         const pdfBytes = await pdfDoc.save();
                         self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes } });
                         break;
                     }
-                     case 'REPLACE': {
+                    case 'REPLACE': {
                         const { index, file } = payload;
                         const arrayBuffer = await file.arrayBuffer();
                         const replacementPdf = await self.PDFLib.PDFDocument.load(arrayBuffer);
-                        if (replacementPdf.getPageCount() === 0) {
-                            throw new Error("O PDF de substituição não tem páginas.");
-                        }
+                        if (replacementPdf.getPageCount() === 0) throw new Error("PDF vazio.");
                         const [copiedPage] = await pdfDoc.copyPages(replacementPdf, [0]);
                         pdfDoc.removePage(index);
                         pdfDoc.insertPage(index, copiedPage);
                         const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Página substituída com sucesso!' } });
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Página substituída.' } });
                         break;
                     }
                     case 'SPLIT': {
-                        const { indices } = payload;
                         const newPdfDoc = await self.PDFLib.PDFDocument.create();
-                        const sortedIndices = [...indices].sort((a, b) => a - b);
-                        const copiedPages = await newPdfDoc.copyPages(pdfDoc, sortedIndices);
+                        const copiedPages = await newPdfDoc.copyPages(pdfDoc, payload.indices.sort((a,b) => a-b));
                         copiedPages.forEach(page => newPdfDoc.addPage(page));
                         const pdfBytes = await newPdfDoc.save();
                         self.postMessage({ type: 'SPLIT_SUCCESS', payload: { pdfBytes } });
@@ -207,317 +286,322 @@
                     }
                 }
             } catch (error) {
-                console.error('Erro no Worker:', error);
-                self.postMessage({ type: 'ERROR', payload: { message: `Ocorreu um erro no worker: ${error.message}` } });
+                self.postMessage({ type: 'ERROR', payload: { message: error.message || "Erro desconhecido no processamento." } });
             }
         };
     </script>
 
     <script>
-        /**
-         * @file Editor de PDF Pro - Versão Final Revisada
-         * @author HAlexandre
-         * @version 3.1.1
-         */
-
+        // Configuração do PDF.js
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
+        // --- Módulo: Estado da Aplicação ---
+        const AppState = {
+            pdfDocOriginal: null,
+            selectedPageIndices: new Set(),
+            draggedPageIndex: null,
+            pdfWorker: null,
+            isProcessing: false
+        };
+
+        // --- Módulo: Elementos do DOM (Cache) ---
         const DOM = {
             importInput: document.getElementById('importInput'),
             pdfContainer: document.getElementById('pdfContainer'),
             pdfContainerWrapper: document.getElementById('pdfContainerWrapper'),
             initialMessage: document.getElementById('initialMessage'),
-            buttons: {
-                rotateClockwise: document.getElementById('rotateClockwiseButton'),
-                rotateCounterClockwise: document.getElementById('rotateCounterClockwiseButton'),
+            fileNameInput: document.getElementById('fileNameInput'),
+            themeToggle: document.getElementById('themeToggle'),
+            signature: document.getElementById('signature'),
+            modal: {
+                el: document.getElementById('customModal'),
+                msg: document.getElementById('modalMessage'),
+                btn: document.getElementById('modalCloseButton')
+            },
+            loading: {
+                el: document.getElementById('loadingOverlay'),
+                msg: document.getElementById('loadingMessage')
+            },
+            btn: {
+                rotateCw: document.getElementById('rotateClockwiseButton'),
+                rotateCcw: document.getElementById('rotateCounterClockwiseButton'),
                 remove: document.getElementById('removeButton'),
                 split: document.getElementById('splitButton'),
                 download: document.getElementById('downloadButton'),
-                replace: document.getElementById('replaceButton'),
-            },
-            fileNameInput: document.getElementById('fileNameInput'),
-            modal: { container: document.getElementById('customModal'), message: document.getElementById('modalMessage'), closeButton: document.getElementById('modalCloseButton') },
-            loading: { overlay: document.getElementById('loadingOverlay'), message: document.getElementById('loadingMessage') },
-            themeToggle: document.getElementById('themeToggle'),
-            htmlEl: document.documentElement,
-            signature: document.getElementById('signature')
+                replace: document.getElementById('replaceButton')
+            }
         };
 
-        const appState = {
-            pdfDocOriginal: null,
-            selectedPageIndices: new Set(),
-            draggedPageIndex: null,
-            pdfWorker: null
-        };
-
+        // --- Módulo: Interface do Usuário (UI) ---
         const UI = {
-            showModal(message) { DOM.modal.message.textContent = message; DOM.modal.container.classList.remove('hidden'); },
-            hideModal() { DOM.modal.container.classList.add('hidden'); },
-            showLoading(message = 'A carregar...') { DOM.loading.message.textContent = message; DOM.loading.overlay.classList.remove('hidden'); },
-            hideLoading() { DOM.loading.overlay.classList.add('hidden'); },
-            updateButtonStates() {
-                const isPdfLoaded = appState.pdfDocOriginal !== null;
-                const selectedCount = appState.selectedPageIndices.size;
-                Object.values(DOM.buttons).forEach(btn => btn.disabled = !isPdfLoaded);
-                DOM.buttons.rotateClockwise.disabled = selectedCount === 0;
-                DOM.buttons.rotateCounterClockwise.disabled = selectedCount === 0;
-                DOM.buttons.remove.disabled = selectedCount === 0;
-                DOM.buttons.split.disabled = selectedCount === 0;
-                DOM.buttons.replace.disabled = selectedCount !== 1;
-                DOM.fileNameInput.disabled = !isPdfLoaded;
+            showModal(message) {
+                DOM.modal.msg.textContent = message;
+                DOM.modal.el.classList.remove('hidden');
+                // Pequeno delay para animação de opacidade
+                requestAnimationFrame(() => DOM.modal.el.classList.remove('opacity-0'));
             },
-            async renderPDFPages(pdfBytes) {
-                UI.showLoading('A renderizar páginas...');
+            hideModal() {
+                DOM.modal.el.classList.add('opacity-0');
+                setTimeout(() => DOM.modal.el.classList.add('hidden'), 300);
+            },
+            showLoading(message = 'Processando...') {
+                DOM.loading.msg.textContent = message;
+                DOM.loading.el.classList.remove('hidden');
+                AppState.isProcessing = true;
+            },
+            hideLoading() {
+                DOM.loading.el.classList.add('hidden');
+                AppState.isProcessing = false;
+            },
+            updateButtons() {
+                const hasPdf = AppState.pdfDocOriginal !== null;
+                const selCount = AppState.selectedPageIndices.size;
+                
+                DOM.btn.rotateCw.disabled = !hasPdf || selCount === 0;
+                DOM.btn.rotateCcw.disabled = !hasPdf || selCount === 0;
+                DOM.btn.remove.disabled = !hasPdf || selCount === 0;
+                DOM.btn.split.disabled = !hasPdf || selCount === 0;
+                DOM.btn.replace.disabled = !hasPdf || selCount !== 1;
+                DOM.btn.download.disabled = !hasPdf;
+                DOM.fileNameInput.disabled = !hasPdf;
+            },
+            async renderPages(pdfBytes) {
+                this.showLoading('Gerando visualização...');
                 try {
                     const pdfData = new Uint8Array(pdfBytes);
-                    appState.pdfDocOriginal = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                    AppState.pdfDocOriginal = await pdfjsLib.getDocument({ data: pdfData }).promise;
                     DOM.pdfContainer.innerHTML = '';
-                    appState.selectedPageIndices.clear();
+                    AppState.selectedPageIndices.clear();
 
-                    const renderPromises = [];
-                    for (let i = 0; i < appState.pdfDocOriginal.numPages; i++) {
-                        renderPromises.push(this.createPageElement(i));
+                    // Renderização sequencial para evitar travamento da UI em PDFs grandes
+                    for (let i = 0; i < AppState.pdfDocOriginal.numPages; i++) {
+                        await this.createPageCard(i);
                     }
-                    await Promise.all(renderPromises);
-
-                } catch (error) {
-                    console.error("Erro ao renderizar PDF:", error);
-                    this.showModal("Falha ao renderizar o PDF. O ficheiro pode estar corrompido.");
-                } finally {
                     DOM.initialMessage.classList.add('hidden');
-                    this.updateButtonStates();
-                    UI.hideLoading();
+                } catch (err) {
+                    this.showModal("Não foi possível renderizar o visualizador. O arquivo pode ser inválido.");
+                    console.error(err);
+                } finally {
+                    this.updateButtons();
+                    this.hideLoading();
                 }
             },
-            async createPageElement(index) {
-                const page = await appState.pdfDocOriginal.getPage(index + 1);
-                const viewport = page.getViewport({ scale: 0.4 });
+            async createPageCard(index) {
+                const page = await AppState.pdfDocOriginal.getPage(index + 1);
+                // Viewport menor para thumbnails = mais performance
+                const viewport = page.getViewport({ scale: 0.3 });
                 const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
 
-                const pageDiv = document.createElement('div');
-                pageDiv.className = 'pdf-page border-2 border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer m-2 inline-block hover:shadow-lg';
-                pageDiv.appendChild(canvas);
-                pageDiv.dataset.index = index;
-                pageDiv.draggable = true;
+                const card = document.createElement('div');
+                card.className = 'pdf-page bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer m-2 overflow-hidden shadow-sm hover:shadow-md';
+                card.dataset.index = index;
+                card.draggable = true;
+                // Previne seleção de texto ao arrastar
+                card.style.userSelect = 'none';
 
-                // Cria e adiciona o indicador de seleção (check mark)
-                const selectionIndicator = document.createElement('div');
-                selectionIndicator.className = 'selection-indicator';
-                selectionIndicator.innerHTML = `<i class="fas fa-check"></i>`;
-                pageDiv.appendChild(selectionIndicator);
+                card.innerHTML = `
+                    <div class="selection-indicator"><i class="fas fa-check"></i></div>
+                    <div class="page-number">${index + 1}</div>
+                `;
+                card.appendChild(canvas);
 
-                // Cria e adiciona o número da página
-                const pageNumber = document.createElement('div');
-                pageNumber.className = 'page-number';
-                pageNumber.textContent = index + 1;
-                pageDiv.appendChild(pageNumber);
+                const ctx = canvas.getContext('2d');
+                await page.render({ canvasContext: ctx, viewport }).promise;
 
-                pageDiv.addEventListener('click', EventHandlers.onPageClick);
-                pageDiv.addEventListener('dragstart', EventHandlers.onDragStart);
-                pageDiv.addEventListener('dragover', EventHandlers.onDragOver);
-                pageDiv.addEventListener('dragleave', EventHandlers.onDragLeave);
-                pageDiv.addEventListener('drop', EventHandlers.onDropOnPage);
-                pageDiv.addEventListener('dragend', EventHandlers.onDragEnd);
-                
-                DOM.pdfContainer.appendChild(pageDiv);
-                await page.render({ canvasContext: context, viewport }).promise;
+                // Bind de eventos
+                card.onclick = Events.onPageSelect;
+                card.ondragstart = Events.onDragStart;
+                card.ondragover = Events.onDragOver;
+                card.ondragleave = Events.onDragLeave;
+                card.ondrop = Events.onDrop;
+                card.ondragend = Events.onDragEnd;
+
+                DOM.pdfContainer.appendChild(card);
             },
-            loadTheme() {
-                const savedTheme = localStorage.getItem('theme');
-                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-                    DOM.htmlEl.classList.add('dark');
-                    DOM.themeToggle.innerHTML = '☀️';
+            toggleTheme() {
+                const isDark = document.documentElement.classList.toggle('dark');
+                const icon = DOM.themeToggle.querySelector('i');
+                if (isDark) {
+                    icon.className = 'fas fa-sun text-yellow-400';
                 } else {
-                    DOM.htmlEl.classList.remove('dark');
-                    DOM.themeToggle.innerHTML = '🌙';
+                    icon.className = 'fas fa-moon text-indigo-600';
+                }
+                localStorage.setItem('pdf-pro-theme', isDark ? 'dark' : 'light');
+            },
+            initTheme() {
+                const savedInfo = localStorage.getItem('pdf-pro-theme');
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (savedInfo === 'dark' || (!savedInfo && prefersDark)) {
+                    document.documentElement.classList.add('dark');
+                    DOM.themeToggle.querySelector('i').className = 'fas fa-sun text-yellow-400';
                 }
             },
-            setSignature() {
+            setBranding() {
                 const year = new Date().getFullYear();
-                DOM.signature.textContent = `Feito por HAlexandre © ${year}`;
-            },
-            download(bytes, defaultName) {
-                const blob = new Blob([bytes], { type: 'application/pdf' });
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(blob);
-                let fileName = DOM.fileNameInput.value.trim() || defaultName;
-                if (!fileName.toLowerCase().endsWith('.pdf')) fileName += '.pdf';
-                link.download = fileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(link.href);
+                DOM.signature.innerHTML = `Feito com <i class="fas fa-heart text-red-500 mx-1"></i> por HAlexandre © ${year}`;
             }
         };
 
-        const EventHandlers = {
-            preventDefaults(e) { e.preventDefault(); e.stopPropagation(); },
-            onPageClick(e) {
-                const pageDiv = e.currentTarget;
-                const clickedIndex = parseInt(pageDiv.dataset.index);
-                if (appState.selectedPageIndices.has(clickedIndex)) {
-                    appState.selectedPageIndices.delete(clickedIndex);
-                    pageDiv.classList.remove('selected');
-                } else {
-                    appState.selectedPageIndices.add(clickedIndex);
-                    pageDiv.classList.add('selected');
+        // --- Módulo: Lógica e Comunicação (Worker) ---
+        const Logic = {
+            initWorker() {
+                if (AppState.pdfWorker) return; // Evita recriar se já existe
+                try {
+                    const blob = new Blob([document.getElementById('pdfWorker').textContent], { type: 'application/javascript' });
+                    AppState.pdfWorker = new Worker(URL.createObjectURL(blob));
+                    AppState.pdfWorker.onmessage = this.handleWorkerMessage;
+                    AppState.pdfWorker.onerror = (e) => {
+                        console.error(e);
+                        UI.showModal("Erro crítico: O navegador bloqueou o Worker.");
+                    };
+                } catch (e) {
+                    UI.showModal("Seu navegador não suporta a tecnologia necessária (Web Workers).");
                 }
-                UI.updateButtonStates();
+            },
+            handleWorkerMessage(e) {
+                const { type, payload } = e.data;
+                switch (type) {
+                    case 'LOAD_SUCCESS':
+                    case 'OPERATION_SUCCESS':
+                        UI.renderPages(payload.pdfBytes);
+                        if (payload.message) {
+                             // Feedback sutil via console ou toast (opcional), aqui usamos modal se necessário
+                             // UI.showModal(payload.message); 
+                        }
+                        break;
+                    case 'SPLIT_SUCCESS':
+                        UI.hideLoading();
+                        Logic.downloadBytes(payload.pdfBytes, 'extracao_halexandre.pdf');
+                        break;
+                    case 'SAVE_SUCCESS':
+                        UI.hideLoading();
+                        let name = DOM.fileNameInput.value.trim() || 'documento.pdf';
+                        if (!name.toLowerCase().endsWith('.pdf')) name += '.pdf';
+                        Logic.downloadBytes(payload.pdfBytes, name);
+                        UI.showModal("Arquivo salvo com sucesso na sua pasta de Downloads!");
+                        break;
+                    case 'PROGRESS':
+                        DOM.loading.msg.textContent = payload.message;
+                        break;
+                    case 'ERROR':
+                        UI.hideLoading();
+                        UI.showModal(`Ocorreu um erro: ${payload.message}`);
+                        break;
+                }
+            },
+            downloadBytes(bytes, name) {
+                const blob = new Blob([bytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        };
+
+        // --- Módulo: Eventos ---
+        const Events = {
+            init() {
+                DOM.importInput.onchange = this.onImport;
+                DOM.btn.rotateCw.onclick = () => this.post('ROTATE', { indices: Array.from(AppState.selectedPageIndices), angle: 90 });
+                DOM.btn.rotateCcw.onclick = () => this.post('ROTATE', { indices: Array.from(AppState.selectedPageIndices), angle: -90 });
+                DOM.btn.remove.onclick = () => this.post('REMOVE', { indices: Array.from(AppState.selectedPageIndices) });
+                DOM.btn.split.onclick = () => this.post('SPLIT', { indices: Array.from(AppState.selectedPageIndices) });
+                DOM.btn.download.onclick = () => this.post('SAVE');
+                DOM.btn.replace.onclick = this.onReplaceRequest;
+                
+                DOM.themeToggle.onclick = UI.toggleTheme;
+                DOM.modal.btn.onclick = UI.hideModal;
+
+                // Drag & Drop na Área Principal
+                DOM.pdfContainerWrapper.ondragover = (e) => { e.preventDefault(); DOM.pdfContainerWrapper.classList.add('drop-zone-highlight'); };
+                DOM.pdfContainerWrapper.ondragleave = () => DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight');
+                DOM.pdfContainerWrapper.ondrop = this.onContainerDrop;
+            },
+            post(type, payload = {}) {
+                UI.showLoading();
+                AppState.pdfWorker.postMessage({ type, payload });
+            },
+            onImport(e) {
+                const files = Array.from(e.target.files).filter(f => f.type === 'application/pdf');
+                if (files.length > 0) {
+                    Logic.initWorker();
+                    Events.post('LOAD_FILES', { files });
+                }
+                e.target.value = ''; // Reset input
+            },
+            onPageSelect(e) {
+                const card = e.currentTarget;
+                const idx = parseInt(card.dataset.index);
+                if (AppState.selectedPageIndices.has(idx)) {
+                    AppState.selectedPageIndices.delete(idx);
+                    card.classList.remove('selected');
+                } else {
+                    AppState.selectedPageIndices.add(idx);
+                    card.classList.add('selected');
+                }
+                UI.updateButtons();
             },
             onDragStart(e) {
-                const pageElement = e.target.closest('.pdf-page');
-                if (!pageElement) return;
-                appState.draggedPageIndex = parseInt(pageElement.dataset.index);
-                setTimeout(() => pageElement.classList.add('dragging'), 0);
+                AppState.draggedPageIndex = parseInt(e.currentTarget.dataset.index);
+                e.currentTarget.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
             },
-            onDragOver(e) { e.preventDefault(); e.target.closest('.pdf-page')?.classList.add('drag-over'); },
-            onDragLeave(e) { e.target.closest('.pdf-page')?.classList.remove('drag-over'); },
-            onDropOnPage(e) {
+            onDragOver(e) { 
+                e.preventDefault(); 
+                e.currentTarget.classList.add('drag-over'); 
+                e.dataTransfer.dropEffect = 'move';
+            },
+            onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); },
+            onDrop(e) {
                 e.preventDefault();
-                const targetElement = e.target.closest('.pdf-page');
-                if (!targetElement) return;
-                targetElement.classList.remove('drag-over');
-                const toIndex = parseInt(targetElement.dataset.index);
-                const fromIndex = appState.draggedPageIndex;
+                e.stopPropagation();
+                const target = e.currentTarget;
+                target.classList.remove('drag-over');
                 
-                if (fromIndex !== null && toIndex !== null && fromIndex !== toIndex) {
-                    UI.showLoading('A reordenar páginas...');
-                    appState.pdfWorker.postMessage({ type: 'REORDER', payload: { fromIndex, toIndex } });
+                const toIdx = parseInt(target.dataset.index);
+                const fromIdx = AppState.draggedPageIndex;
+                
+                if (fromIdx !== null && fromIdx !== undefined && fromIdx !== toIdx) {
+                    Events.post('REORDER', { fromIndex: fromIdx, toIndex: toIdx });
                 }
             },
-            onDragEnd(e) {
-                const pageElement = e.target.closest('.pdf-page');
-                if (pageElement) pageElement.classList.remove('dragging');
-                appState.draggedPageIndex = null; 
-            },
-            onDropOnContainer(e) {
-                EventHandlers.preventDefaults(e);
+            onDragEnd(e) { e.currentTarget.classList.remove('dragging'); },
+            onContainerDrop(e) {
+                e.preventDefault();
                 DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight');
                 const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
                 if (files.length > 0) {
-                    UI.showLoading('A carregar ficheiros...');
-                    appState.pdfWorker.postMessage({ type: 'LOAD_FILES', payload: { files } });
-                } else {
-                    UI.showModal("Por favor, solte apenas ficheiros PDF válidos.");
+                    Logic.initWorker();
+                    Events.post('LOAD_FILES', { files });
                 }
             },
-            setup() {
-                try {
-                    const workerBlob = new Blob([document.getElementById('pdfWorker').textContent], { type: 'application/javascript' });
-                    appState.pdfWorker = new Worker(URL.createObjectURL(workerBlob));
-                    appState.pdfWorker.onmessage = (event) => {
-                        const { type, payload } = event.data;
-                        switch (type) {
-                            case 'LOAD_SUCCESS':
-                                UI.renderPDFPages(payload.pdfBytes);
-                                break;
-                            case 'OPERATION_SUCCESS':
-                                UI.renderPDFPages(payload.pdfBytes);
-                                if (payload.message) UI.showModal(payload.message);
-                                break;
-                            case 'SPLIT_SUCCESS':
-                                UI.hideLoading();
-                                UI.download(payload.pdfBytes, 'pdf_dividido.pdf');
-                                UI.showModal('Novo PDF criado com sucesso!');
-                                break;
-                            case 'SAVE_SUCCESS':
-                                UI.hideLoading();
-                                UI.download(payload.pdfBytes, 'pdf_editado.pdf');
-                                UI.showModal("PDF salvo com sucesso!");
-                                break;
-                            case 'PROGRESS':
-                                UI.showLoading(payload.message);
-                                break;
-                            case 'ERROR':
-                                UI.hideLoading();
-                                UI.showModal(`Erro: ${payload.message}`);
-                                break;
-                        }
-                    };
-                    appState.pdfWorker.onerror = (error) => {
-                        console.error("Erro fatal no Web Worker:", error);
-                        UI.hideLoading();
-                        UI.showModal("Ocorreu um erro crítico no processamento em segundo plano. Por favor, recarregue a página.");
-                    };
-                } catch (e) {
-                    console.error("Erro ao iniciar o Web Worker:", e);
-                    UI.showModal("O seu navegador não suporta Web Workers ou ocorreu um erro. A aplicação pode não funcionar corretamente.");
-                }
-
-                DOM.importInput.addEventListener('change', (e) => {
-                    if (e.target.files.length > 0) {
-                        UI.showLoading('A carregar ficheiros...');
-                        appState.pdfWorker.postMessage({ type: 'LOAD_FILES', payload: { files: Array.from(e.target.files) } });
-                    }
-                    e.target.value = '';
-                });
-                
-                const getSelectedIndicesArray = () => Array.from(appState.selectedPageIndices);
-
-                DOM.buttons.rotateClockwise.addEventListener('click', () => {
-                    UI.showLoading('A girar páginas...');
-                    appState.pdfWorker.postMessage({ type: 'ROTATE', payload: { indices: getSelectedIndicesArray(), angle: 90 } });
-                });
-                DOM.buttons.rotateCounterClockwise.addEventListener('click', () => {
-                    UI.showLoading('A girar páginas...');
-                    appState.pdfWorker.postMessage({ type: 'ROTATE', payload: { indices: getSelectedIndicesArray(), angle: -90 } });
-                });
-                DOM.buttons.remove.addEventListener('click', () => {
-                    UI.showLoading('A remover páginas...');
-                    appState.pdfWorker.postMessage({ type: 'REMOVE', payload: { indices: getSelectedIndicesArray() } });
-                });
-                DOM.buttons.split.addEventListener('click', () => {
-                     UI.showLoading('A dividir PDF...');
-                    appState.pdfWorker.postMessage({ type: 'SPLIT', payload: { indices: getSelectedIndicesArray() } });
-                });
-                DOM.buttons.replace.addEventListener('click', () => {
-                    if (appState.selectedPageIndices.size !== 1) return UI.showModal("Selecione uma única página para substituir.");
-                    const tempInput = document.createElement('input');
-                    tempInput.type = 'file';
-                    tempInput.accept = '.pdf';
-                    tempInput.onchange = (e) => {
-                        const file = e.target.files[0];
-                        if (!file) return;
-                        UI.showLoading('A substituir página...');
-                        const index = getSelectedIndicesArray()[0];
-                        appState.pdfWorker.postMessage({ type: 'REPLACE', payload: { index, file } });
-                    };
-                    tempInput.click();
-                });
-                DOM.buttons.download.addEventListener('click', () => {
-                    UI.showLoading('A salvar PDF...');
-                    appState.pdfWorker.postMessage({ type: 'SAVE' });
-                });
-
-                DOM.modal.closeButton.addEventListener('click', UI.hideModal);
-                DOM.themeToggle.addEventListener('click', () => {
-                    DOM.htmlEl.classList.toggle('dark');
-                    const isDark = DOM.htmlEl.classList.contains('dark');
-                    localStorage.setItem('theme', isDark ? 'dark' : 'light');
-                    DOM.themeToggle.innerHTML = isDark ? '☀️' : '🌙';
-                });
-
-                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                    document.body.addEventListener(eventName, EventHandlers.preventDefaults, false);
-                });
-                DOM.pdfContainerWrapper.addEventListener('dragenter', () => DOM.pdfContainerWrapper.classList.add('drop-zone-highlight'), false);
-                DOM.pdfContainerWrapper.addEventListener('dragleave', () => DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight'), false);
-                DOM.pdfContainerWrapper.addEventListener('drop', EventHandlers.onDropOnContainer, false);
+            onReplaceRequest() {
+                const idx = Array.from(AppState.selectedPageIndices)[0];
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.pdf';
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (file) Events.post('REPLACE', { index: idx, file });
+                };
+                input.click();
             }
         };
 
+        // --- Inicialização ---
         document.addEventListener('DOMContentLoaded', () => {
-            UI.updateButtonStates();
-            UI.loadTheme();
-            UI.setSignature();
-            EventHandlers.setup();
+            UI.initTheme();
+            UI.setBranding();
+            UI.updateButtons();
+            Logic.initWorker(); // Pré-aquece o worker
+            Events.init();
         });
     </script>
 </body>
 </html>
-
-
