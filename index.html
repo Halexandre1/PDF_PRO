@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Editor de PDF Profissional via Browser. Junte, gire, organize e edite seus PDFs localmente com segurança. Desenvolvido por HAlexandre.">
+    <meta name="description" content="Editor de PDF Profissional via Browser. Junte, gire, organize, marque d'água, numere e edite seus PDFs localmente com segurança. Desenvolvido por HAlexandre.">
     <meta name="author" content="HAlexandre">
     <meta name="theme-color" content="#4f46e5">
-    
+
     <title>Editor de PDF PRO - HAlexandre</title>
-    
-    <!-- Favicon via Data URI para não depender de arquivos externos -->
+
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📄</text></svg>">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -17,7 +16,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    
+
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -41,13 +40,11 @@
     <style>
         :root { --accent-color: #4f46e5; }
         body { transition: background-color 0.3s, color 0.3s; }
-        
-        /* Otimização de Scrollbar */
+
         .pdf-container-wrapper::-webkit-scrollbar { width: 8px; height: 8px; }
         .pdf-container-wrapper::-webkit-scrollbar-track { background: transparent; }
         .pdf-container-wrapper::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.5); border-radius: 20px; }
-        
-        /* Animações e Estados */
+
         .pdf-page {
             position: relative;
             transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease-out, border-color 0.2s;
@@ -60,21 +57,20 @@
             z-index: 10;
         }
         .pdf-page.dragging { opacity: 0.4; cursor: grabbing; transform: scale(0.95); }
-        .pdf-page.drag-over { 
+        .pdf-page.drag-over {
             box-shadow: 0 0 0 4px var(--accent-color);
             transform: scale(1.05);
             z-index: 20;
         }
-        .drop-zone-highlight { 
-            border-color: var(--accent-color) !important; 
+        .drop-zone-highlight {
+            border-color: var(--accent-color) !important;
             background-color: rgba(79, 70, 229, 0.05);
-            box-shadow: inset 0 0 0 2px var(--accent-color) !important; 
+            box-shadow: inset 0 0 0 2px var(--accent-color) !important;
         }
 
-        /* Elementos UI */
         .loader { border-right-color: transparent !important; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
+
         .page-number {
             position: absolute; bottom: 8px; left: 8px;
             background-color: rgba(15, 23, 42, 0.75); backdrop-filter: blur(2px);
@@ -93,6 +89,26 @@
         }
         .pdf-page.selected .selection-indicator { display: flex; animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
+
+        .tool-btn {
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 600; font-size: 0.9rem;
+            padding: 0.6rem 1rem; border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: all 0.2s; opacity: 1; transform: scale(1);
+        }
+        .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: scale(0.98); box-shadow: none; filter: grayscale(0.5); }
+        .tool-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.1); }
+        .tool-btn:not(:disabled):active { transform: translateY(0); }
+
+        /* Modal de prompt (texto da marca d'água / numeração) */
+        #promptModal .prompt-input {
+            width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem;
+            border: 2px solid #e2e8f0; background: #f8fafc; outline: none;
+            font-weight: 500; transition: border-color 0.2s;
+        }
+        .dark #promptModal .prompt-input { background: #0f172a; border-color: #334155; color: #e2e8f0; }
+        #promptModal .prompt-input:focus { border-color: var(--accent-color); }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center p-4 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-200 selection:bg-indigo-500 selection:text-white">
@@ -118,14 +134,14 @@
         <!-- Área de Ação Principal -->
         <section class="mb-8">
             <label for="importInput" class="group cursor-pointer bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-5 px-6 rounded-2xl shadow-lg shadow-indigo-500/25 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-3 w-full border border-white/10">
-                <i class="fas fa-plus-circle text-2xl group-hover:rotate-90 transition-transform duration-300"></i> 
+                <i class="fas fa-plus-circle text-2xl group-hover:rotate-90 transition-transform duration-300"></i>
                 <span class="text-lg">Selecionar Arquivos PDF</span>
                 <input type="file" id="importInput" accept=".pdf" class="hidden" multiple />
             </label>
         </section>
 
-        <!-- Barra de Ferramentas -->
-        <section class="flex flex-wrap items-center justify-center gap-3 mb-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+        <!-- Barra de Ferramentas: Organização -->
+        <section class="flex flex-wrap items-center justify-center gap-3 mb-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
             <button id="replaceButton" class="tool-btn bg-orange-500 hover:bg-orange-600" disabled><i class="fas fa-sync-alt mr-2"></i> Substituir</button>
             <div class="h-8 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
             <button id="rotateClockwiseButton" class="tool-btn bg-blue-600 hover:bg-blue-700" disabled><i class="fas fa-redo-alt mr-2"></i> 90°</button>
@@ -133,21 +149,17 @@
             <div class="h-8 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
             <button id="splitButton" class="tool-btn bg-purple-600 hover:bg-purple-700" disabled><i class="fas fa-cut mr-2"></i> Extrair</button>
             <button id="removeButton" class="tool-btn bg-red-500 hover:bg-red-600" disabled><i class="fas fa-trash-alt mr-2"></i> Excluir</button>
-            
-            <style>
-                .tool-btn {
-                    display: flex; align-items: center; justify-content: center;
-                    color: white; font-weight: 600; font-size: 0.9rem;
-                    padding: 0.6rem 1rem; border-radius: 0.75rem;
-                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-                    transition: all 0.2s; opacity: 1; transform: scale(1);
-                }
-                .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: scale(0.98); box-shadow: none; filter: grayscale(0.5); }
-                .tool-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.1); }
-                .tool-btn:not(:disabled):active { transform: translateY(0); }
-            </style>
         </section>
-        
+
+        <!-- Barra de Ferramentas: Edição Avançada (NOVO) -->
+        <section class="flex flex-wrap items-center justify-center gap-3 mb-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+            <span class="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 w-full text-center mb-1">✏️ Edição Avançada</span>
+            <button id="watermarkButton" class="tool-btn bg-fuchsia-600 hover:bg-fuchsia-700" disabled><i class="fas fa-tint mr-2"></i> Marca d'água</button>
+            <button id="pageNumbersButton" class="tool-btn bg-teal-600 hover:bg-teal-700" disabled><i class="fas fa-list-ol mr-2"></i> Numerar Páginas</button>
+            <button id="insertBlankButton" class="tool-btn bg-lime-600 hover:bg-lime-700" disabled><i class="fas fa-file mr-2"></i> Pág. em Branco</button>
+            <button id="stampImageButton" class="tool-btn bg-cyan-600 hover:bg-cyan-700" disabled><i class="fas fa-stamp mr-2"></i> Selo / Assinatura</button>
+        </section>
+
         <!-- Área de Download -->
         <section class="flex flex-col md:flex-row items-center justify-center gap-4 mb-6 bg-white dark:bg-slate-800 p-2 rounded-xl">
             <div class="relative w-full md:w-auto flex-grow max-w-lg">
@@ -180,7 +192,7 @@
                 <span>Feito com <i class="fas fa-heart text-red-500 mx-0.5 animate-pulse"></i> por HAlexandre</span>
             </p>
             <div class="flex gap-4 text-slate-400 text-[10px] uppercase tracking-widest font-bold opacity-60">
-                <span>Versão 3.2.0 (Final)</span>
+                <span>Versão 3.3.0 (Edição Avançada)</span>
                 <span>•</span>
                 <span>Privacidade Garantida</span>
             </div>
@@ -198,6 +210,22 @@
         </div>
     </div>
 
+    <!-- Modal de Prompt (Marca d'água / Numeração) -->
+    <div id="promptModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center border border-slate-100 dark:border-slate-700">
+            <div class="mx-auto flex items-center justify-center h-14 w-14 rounded-full bg-fuchsia-100 dark:bg-fuchsia-900/30 mb-4">
+                <i id="promptIcon" class="fas fa-tint text-xl text-fuchsia-600 dark:text-fuchsia-400"></i>
+            </div>
+            <p id="promptTitle" class="text-slate-700 dark:text-slate-200 text-base font-bold mb-4"></p>
+            <input id="promptInput" type="text" class="prompt-input mb-2" />
+            <p id="promptHint" class="text-xs text-slate-400 dark:text-slate-500 mb-5"></p>
+            <div class="flex gap-2">
+                <button id="promptCancelButton" class="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold py-2.5 rounded-xl transition-all">Cancelar</button>
+                <button id="promptConfirmButton" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl transition-all">Aplicar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex flex-col items-center justify-center z-[110] hidden transition-opacity duration-300">
         <div class="relative">
             <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-600 dark:border-slate-500 h-16 w-16" style="border-top-color: #6366f1;"></div>
@@ -208,7 +236,7 @@
 
     <!-- Scripts Externos -->
     <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-    
+
     <!-- Worker Script (Lógica Pesada) -->
     <script id="pdfWorker" type="javascript/worker">
         self.importScripts('https://unpkg.com/pdf-lib/dist/pdf-lib.min.js');
@@ -244,7 +272,6 @@
                         break;
                     }
                     case 'REMOVE': {
-                        // Ordena decrescente para não afetar índices durante remoção
                         [...payload.indices].sort((a, b) => b - a).forEach(index => pdfDoc.removePage(index));
                         const pdfBytes = await pdfDoc.save();
                         self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas removidas.' } });
@@ -279,6 +306,97 @@
                         self.postMessage({ type: 'SPLIT_SUCCESS', payload: { pdfBytes } });
                         break;
                     }
+
+                    // 🆕 MARCA D'ÁGUA: texto diagonal semitransparente em todas as páginas
+                    // ou apenas nas selecionadas (se payload.indices vier preenchido).
+                    case 'WATERMARK': {
+                        const { text, indices } = payload;
+                        const font = await pdfDoc.embedFont(self.PDFLib.StandardFonts.HelveticaBold);
+                        const targetIndices = (indices && indices.length > 0) ? indices : pdfDoc.getPageIndices();
+                        targetIndices.forEach(idx => {
+                            const page = pdfDoc.getPage(idx);
+                            const { width, height } = page.getSize();
+                            const fontSize = Math.min(width, height) / 8;
+                            const textWidth = font.widthOfTextAtSize(text, fontSize);
+                            page.drawText(text, {
+                                x: (width - textWidth) / 2,
+                                y: height / 2,
+                                size: fontSize,
+                                font,
+                                color: self.PDFLib.rgb(0.55, 0.55, 0.55),
+                                opacity: 0.28,
+                                rotate: self.PDFLib.degrees(45),
+                            });
+                        });
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Marca d\\'água aplicada.' } });
+                        break;
+                    }
+
+                    // 🆕 NUMERAÇÃO DE PÁGINAS: rodapé "N / total" em cada página.
+                    case 'PAGE_NUMBERS': {
+                        const { startAt } = payload;
+                        const font = await pdfDoc.embedFont(self.PDFLib.StandardFonts.Helvetica);
+                        const total = pdfDoc.getPageCount();
+                        pdfDoc.getPages().forEach((page, i) => {
+                            const { width } = page.getSize();
+                            const label = `${startAt + i} / ${startAt + total - 1}`;
+                            const fontSize = 10;
+                            const textWidth = font.widthOfTextAtSize(label, fontSize);
+                            page.drawText(label, {
+                                x: (width - textWidth) / 2,
+                                y: 18,
+                                size: fontSize,
+                                font,
+                                color: self.PDFLib.rgb(0.35, 0.35, 0.35),
+                                opacity: 0.9,
+                            });
+                        });
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Numeração adicionada.' } });
+                        break;
+                    }
+
+                    // 🆕 PÁGINA EM BRANCO: insere página vazia após o índice selecionado.
+                    case 'INSERT_BLANK': {
+                        const { afterIndex } = payload;
+                        const refPage = pdfDoc.getPage(Math.min(afterIndex, pdfDoc.getPageCount() - 1));
+                        const { width, height } = refPage.getSize();
+                        pdfDoc.insertPage(afterIndex + 1, [width, height]);
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Página em branco inserida.' } });
+                        break;
+                    }
+
+                    // 🆕 SELO / ASSINATURA: embute uma imagem (PNG/JPG) no canto inferior
+                    // direito da página selecionada — ótimo para logos, selos ou assinaturas digitalizadas.
+                    case 'STAMP_IMAGE': {
+                        const { index, file } = payload;
+                        const arrayBuffer = await file.arrayBuffer();
+                        let image;
+                        if (file.type === 'image/png') {
+                            image = await pdfDoc.embedPng(arrayBuffer);
+                        } else {
+                            image = await pdfDoc.embedJpg(arrayBuffer);
+                        }
+                        const page = pdfDoc.getPage(index);
+                        const { width, height } = page.getSize();
+                        const stampWidth = width * 0.22;
+                        const scale = stampWidth / image.width;
+                        const stampHeight = image.height * scale;
+                        const margin = 24;
+                        page.drawImage(image, {
+                            x: width - stampWidth - margin,
+                            y: margin,
+                            width: stampWidth,
+                            height: stampHeight,
+                            opacity: 0.95,
+                        });
+                        const pdfBytes = await pdfDoc.save();
+                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Selo/assinatura aplicado.' } });
+                        break;
+                    }
+
                     case 'SAVE': {
                         const pdfBytes = await pdfDoc.save();
                         self.postMessage({ type: 'SAVE_SUCCESS', payload: { pdfBytes } });
@@ -292,10 +410,8 @@
     </script>
 
     <script>
-        // Configuração do PDF.js
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
-        // --- Módulo: Estado da Aplicação ---
         const AppState = {
             pdfDocOriginal: null,
             selectedPageIndices: new Set(),
@@ -304,7 +420,6 @@
             isProcessing: false
         };
 
-        // --- Módulo: Elementos do DOM (Cache) ---
         const DOM = {
             importInput: document.getElementById('importInput'),
             pdfContainer: document.getElementById('pdfContainer'),
@@ -318,6 +433,15 @@
                 msg: document.getElementById('modalMessage'),
                 btn: document.getElementById('modalCloseButton')
             },
+            promptModal: {
+                el: document.getElementById('promptModal'),
+                icon: document.getElementById('promptIcon'),
+                title: document.getElementById('promptTitle'),
+                input: document.getElementById('promptInput'),
+                hint: document.getElementById('promptHint'),
+                cancelBtn: document.getElementById('promptCancelButton'),
+                confirmBtn: document.getElementById('promptConfirmButton'),
+            },
             loading: {
                 el: document.getElementById('loadingOverlay'),
                 msg: document.getElementById('loadingMessage')
@@ -328,21 +452,48 @@
                 remove: document.getElementById('removeButton'),
                 split: document.getElementById('splitButton'),
                 download: document.getElementById('downloadButton'),
-                replace: document.getElementById('replaceButton')
+                replace: document.getElementById('replaceButton'),
+                watermark: document.getElementById('watermarkButton'),
+                pageNumbers: document.getElementById('pageNumbersButton'),
+                insertBlank: document.getElementById('insertBlankButton'),
+                stampImage: document.getElementById('stampImageButton'),
             }
         };
 
-        // --- Módulo: Interface do Usuário (UI) ---
         const UI = {
             showModal(message) {
                 DOM.modal.msg.textContent = message;
                 DOM.modal.el.classList.remove('hidden');
-                // Pequeno delay para animação de opacidade
                 requestAnimationFrame(() => DOM.modal.el.classList.remove('opacity-0'));
             },
             hideModal() {
                 DOM.modal.el.classList.add('opacity-0');
                 setTimeout(() => DOM.modal.el.classList.add('hidden'), 300);
+            },
+            // 🆕 Modal de prompt para capturar texto (marca d'água / número inicial de página)
+            showPrompt({ icon = 'fa-keyboard', title, placeholder = '', defaultValue = '', hint = '' }) {
+                return new Promise((resolve) => {
+                    DOM.promptModal.icon.className = `fas ${icon} text-xl text-fuchsia-600 dark:text-fuchsia-400`;
+                    DOM.promptModal.title.textContent = title;
+                    DOM.promptModal.input.placeholder = placeholder;
+                    DOM.promptModal.input.value = defaultValue;
+                    DOM.promptModal.hint.textContent = hint;
+                    DOM.promptModal.el.classList.remove('hidden');
+                    requestAnimationFrame(() => DOM.promptModal.el.classList.remove('opacity-0'));
+                    DOM.promptModal.input.focus();
+
+                    const cleanup = (result) => {
+                        DOM.promptModal.el.classList.add('opacity-0');
+                        setTimeout(() => DOM.promptModal.el.classList.add('hidden'), 300);
+                        DOM.promptModal.confirmBtn.onclick = null;
+                        DOM.promptModal.cancelBtn.onclick = null;
+                        DOM.promptModal.input.onkeydown = null;
+                        resolve(result);
+                    };
+                    DOM.promptModal.confirmBtn.onclick = () => cleanup(DOM.promptModal.input.value.trim());
+                    DOM.promptModal.cancelBtn.onclick = () => cleanup(null);
+                    DOM.promptModal.input.onkeydown = (e) => { if (e.key === 'Enter') cleanup(DOM.promptModal.input.value.trim()); };
+                });
             },
             showLoading(message = 'Processando...') {
                 DOM.loading.msg.textContent = message;
@@ -356,7 +507,7 @@
             updateButtons() {
                 const hasPdf = AppState.pdfDocOriginal !== null;
                 const selCount = AppState.selectedPageIndices.size;
-                
+
                 DOM.btn.rotateCw.disabled = !hasPdf || selCount === 0;
                 DOM.btn.rotateCcw.disabled = !hasPdf || selCount === 0;
                 DOM.btn.remove.disabled = !hasPdf || selCount === 0;
@@ -364,6 +515,12 @@
                 DOM.btn.replace.disabled = !hasPdf || selCount !== 1;
                 DOM.btn.download.disabled = !hasPdf;
                 DOM.fileNameInput.disabled = !hasPdf;
+
+                // 🆕 Ferramentas de edição avançada
+                DOM.btn.watermark.disabled = !hasPdf;
+                DOM.btn.pageNumbers.disabled = !hasPdf;
+                DOM.btn.insertBlank.disabled = !hasPdf || selCount !== 1;
+                DOM.btn.stampImage.disabled = !hasPdf || selCount !== 1;
             },
             async renderPages(pdfBytes) {
                 this.showLoading('Gerando visualização...');
@@ -373,7 +530,6 @@
                     DOM.pdfContainer.innerHTML = '';
                     AppState.selectedPageIndices.clear();
 
-                    // Renderização sequencial para evitar travamento da UI em PDFs grandes
                     for (let i = 0; i < AppState.pdfDocOriginal.numPages; i++) {
                         await this.createPageCard(i);
                     }
@@ -388,7 +544,6 @@
             },
             async createPageCard(index) {
                 const page = await AppState.pdfDocOriginal.getPage(index + 1);
-                // Viewport menor para thumbnails = mais performance
                 const viewport = page.getViewport({ scale: 0.3 });
                 const canvas = document.createElement('canvas');
                 canvas.height = viewport.height;
@@ -398,7 +553,6 @@
                 card.className = 'pdf-page bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer m-2 overflow-hidden shadow-sm hover:shadow-md';
                 card.dataset.index = index;
                 card.draggable = true;
-                // Previne seleção de texto ao arrastar
                 card.style.userSelect = 'none';
 
                 card.innerHTML = `
@@ -410,7 +564,6 @@
                 const ctx = canvas.getContext('2d');
                 await page.render({ canvasContext: ctx, viewport }).promise;
 
-                // Bind de eventos
                 card.onclick = Events.onPageSelect;
                 card.ondragstart = Events.onDragStart;
                 card.ondragover = Events.onDragOver;
@@ -444,10 +597,9 @@
             }
         };
 
-        // --- Módulo: Lógica e Comunicação (Worker) ---
         const Logic = {
             initWorker() {
-                if (AppState.pdfWorker) return; // Evita recriar se já existe
+                if (AppState.pdfWorker) return;
                 try {
                     const blob = new Blob([document.getElementById('pdfWorker').textContent], { type: 'application/javascript' });
                     AppState.pdfWorker = new Worker(URL.createObjectURL(blob));
@@ -466,10 +618,6 @@
                     case 'LOAD_SUCCESS':
                     case 'OPERATION_SUCCESS':
                         UI.renderPages(payload.pdfBytes);
-                        if (payload.message) {
-                             // Feedback sutil via console ou toast (opcional), aqui usamos modal se necessário
-                             // UI.showModal(payload.message); 
-                        }
                         break;
                     case 'SPLIT_SUCCESS':
                         UI.hideLoading();
@@ -504,7 +652,6 @@
             }
         };
 
-        // --- Módulo: Eventos ---
         const Events = {
             init() {
                 DOM.importInput.onchange = this.onImport;
@@ -514,11 +661,16 @@
                 DOM.btn.split.onclick = () => this.post('SPLIT', { indices: Array.from(AppState.selectedPageIndices) });
                 DOM.btn.download.onclick = () => this.post('SAVE');
                 DOM.btn.replace.onclick = this.onReplaceRequest;
-                
+
+                // 🆕 Novas ferramentas
+                DOM.btn.watermark.onclick = this.onWatermarkRequest;
+                DOM.btn.pageNumbers.onclick = this.onPageNumbersRequest;
+                DOM.btn.insertBlank.onclick = this.onInsertBlankRequest;
+                DOM.btn.stampImage.onclick = this.onStampImageRequest;
+
                 DOM.themeToggle.onclick = UI.toggleTheme;
                 DOM.modal.btn.onclick = UI.hideModal;
 
-                // Drag & Drop na Área Principal
                 DOM.pdfContainerWrapper.ondragover = (e) => { e.preventDefault(); DOM.pdfContainerWrapper.classList.add('drop-zone-highlight'); };
                 DOM.pdfContainerWrapper.ondragleave = () => DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight');
                 DOM.pdfContainerWrapper.ondrop = this.onContainerDrop;
@@ -533,7 +685,7 @@
                     Logic.initWorker();
                     Events.post('LOAD_FILES', { files });
                 }
-                e.target.value = ''; // Reset input
+                e.target.value = '';
             },
             onPageSelect(e) {
                 const card = e.currentTarget;
@@ -552,9 +704,9 @@
                 e.currentTarget.classList.add('dragging');
                 e.dataTransfer.effectAllowed = 'move';
             },
-            onDragOver(e) { 
-                e.preventDefault(); 
-                e.currentTarget.classList.add('drag-over'); 
+            onDragOver(e) {
+                e.preventDefault();
+                e.currentTarget.classList.add('drag-over');
                 e.dataTransfer.dropEffect = 'move';
             },
             onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); },
@@ -563,10 +715,10 @@
                 e.stopPropagation();
                 const target = e.currentTarget;
                 target.classList.remove('drag-over');
-                
+
                 const toIdx = parseInt(target.dataset.index);
                 const fromIdx = AppState.draggedPageIndex;
-                
+
                 if (fromIdx !== null && fromIdx !== undefined && fromIdx !== toIdx) {
                     Events.post('REORDER', { fromIndex: fromIdx, toIndex: toIdx });
                 }
@@ -591,15 +743,57 @@
                     if (file) Events.post('REPLACE', { index: idx, file });
                 };
                 input.click();
+            },
+            // 🆕 Marca d'água: se houver páginas selecionadas, aplica só nelas; senão, em todo o PDF.
+            async onWatermarkRequest() {
+                const text = await UI.showPrompt({
+                    icon: 'fa-tint',
+                    title: "Texto da marca d'água",
+                    placeholder: 'Ex: CONFIDENCIAL',
+                    hint: AppState.selectedPageIndices.size > 0
+                        ? `Será aplicada em ${AppState.selectedPageIndices.size} página(s) selecionada(s).`
+                        : 'Nenhuma página selecionada: será aplicada em todo o documento.'
+                });
+                if (!text) return;
+                Events.post('WATERMARK', { text, indices: Array.from(AppState.selectedPageIndices) });
+            },
+            // 🆕 Numeração de páginas: pede o número inicial (padrão 1).
+            async onPageNumbersRequest() {
+                const value = await UI.showPrompt({
+                    icon: 'fa-list-ol',
+                    title: 'Numerar a partir de qual página?',
+                    placeholder: '1',
+                    defaultValue: '1',
+                    hint: 'Adiciona "nº / total" no rodapé de todas as páginas.'
+                });
+                if (value === null) return;
+                const startAt = parseInt(value, 10) || 1;
+                Events.post('PAGE_NUMBERS', { startAt });
+            },
+            // 🆕 Página em branco: insere após a página selecionada.
+            onInsertBlankRequest() {
+                const idx = Array.from(AppState.selectedPageIndices)[0];
+                Events.post('INSERT_BLANK', { afterIndex: idx });
+            },
+            // 🆕 Selo/assinatura: pede uma imagem PNG/JPG e aplica na página selecionada.
+            onStampImageRequest() {
+                const idx = Array.from(AppState.selectedPageIndices)[0];
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.png,.jpg,.jpeg';
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (file) Events.post('STAMP_IMAGE', { index: idx, file });
+                };
+                input.click();
             }
         };
 
-        // --- Inicialização ---
         document.addEventListener('DOMContentLoaded', () => {
             UI.initTheme();
             UI.setBranding();
             UI.updateButtons();
-            Logic.initWorker(); // Pré-aquece o worker
+            Logic.initWorker();
             Events.init();
         });
     </script>
