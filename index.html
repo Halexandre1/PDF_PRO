@@ -17,6 +17,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
+    <!-- IMPORTAÇÃO DAS BIBLIOTECAS -->
+    <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -151,7 +155,7 @@
             <button id="removeButton" class="tool-btn bg-red-500 hover:bg-red-600" disabled><i class="fas fa-trash-alt mr-2"></i> Excluir</button>
         </section>
 
-        <!-- Barra de Ferramentas: Edição Avançada (NOVO) -->
+        <!-- Barra de Ferramentas: Edição Avançada -->
         <section class="flex flex-wrap items-center justify-center gap-3 mb-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
             <span class="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 w-full text-center mb-1">✏️ Edição Avançada</span>
             <button id="watermarkButton" class="tool-btn bg-fuchsia-600 hover:bg-fuchsia-700" disabled><i class="fas fa-tint mr-2"></i> Marca d'água</button>
@@ -192,7 +196,7 @@
                 <span>Feito com <i class="fas fa-heart text-red-500 mx-0.5 animate-pulse"></i> por HAlexandre</span>
             </p>
             <div class="flex gap-4 text-slate-400 text-[10px] uppercase tracking-widest font-bold opacity-60">
-                <span>Versão 3.3.0 (Edição Avançada)</span>
+                <span>Versão 3.3.1 (Edição Avançada - No Worker)</span>
                 <span>•</span>
                 <span>Privacidade Garantida</span>
             </div>
@@ -234,189 +238,14 @@
         <p id="loadingMessage" class="text-white text-lg font-medium mt-6 tracking-wide animate-pulse">Processando...</p>
     </div>
 
-    <!-- Scripts Externos -->
-    <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-
-    <!-- Worker Script (Lógica Pesada) -->
-    <script id="pdfWorker" type="javascript/worker">
-        self.importScripts('https://unpkg.com/pdf-lib/dist/pdf-lib.min.js');
-
-        let pdfDoc = null;
-
-        self.onmessage = async (event) => {
-            const { type, payload } = event.data;
-            try {
-                switch (type) {
-                    case 'LOAD_FILES': {
-                        if (!pdfDoc) pdfDoc = await self.PDFLib.PDFDocument.create();
-                        for (let i = 0; i < payload.files.length; i++) {
-                            const file = payload.files[i];
-                            self.postMessage({ type: 'PROGRESS', payload: { message: `Lendo ${file.name}...` } });
-                            const arrayBuffer = await file.arrayBuffer();
-                            const newPdfDoc = await self.PDFLib.PDFDocument.load(arrayBuffer);
-                            const copiedPages = await pdfDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
-                            copiedPages.forEach(page => pdfDoc.addPage(page));
-                        }
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'LOAD_SUCCESS', payload: { pdfBytes } });
-                        break;
-                    }
-                    case 'ROTATE': {
-                        payload.indices.forEach(index => {
-                            const page = pdfDoc.getPage(index);
-                            const currentRotation = page.getRotation().angle;
-                            page.setRotation(self.PDFLib.degrees(currentRotation + payload.angle));
-                        });
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas giradas com sucesso.' } });
-                        break;
-                    }
-                    case 'REMOVE': {
-                        [...payload.indices].sort((a, b) => b - a).forEach(index => pdfDoc.removePage(index));
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Páginas removidas.' } });
-                        break;
-                    }
-                    case 'REORDER': {
-                        const { fromIndex, toIndex } = payload;
-                        const [movedPage] = await pdfDoc.copyPages(pdfDoc, [fromIndex]);
-                        pdfDoc.removePage(fromIndex);
-                        pdfDoc.insertPage(toIndex, movedPage);
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes } });
-                        break;
-                    }
-                    case 'REPLACE': {
-                        const { index, file } = payload;
-                        const arrayBuffer = await file.arrayBuffer();
-                        const replacementPdf = await self.PDFLib.PDFDocument.load(arrayBuffer);
-                        if (replacementPdf.getPageCount() === 0) throw new Error("PDF vazio.");
-                        const [copiedPage] = await pdfDoc.copyPages(replacementPdf, [0]);
-                        pdfDoc.removePage(index);
-                        pdfDoc.insertPage(index, copiedPage);
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Página substituída.' } });
-                        break;
-                    }
-                    case 'SPLIT': {
-                        const newPdfDoc = await self.PDFLib.PDFDocument.create();
-                        const copiedPages = await newPdfDoc.copyPages(pdfDoc, payload.indices.sort((a,b) => a-b));
-                        copiedPages.forEach(page => newPdfDoc.addPage(page));
-                        const pdfBytes = await newPdfDoc.save();
-                        self.postMessage({ type: 'SPLIT_SUCCESS', payload: { pdfBytes } });
-                        break;
-                    }
-
-                    // 🆕 MARCA D'ÁGUA: texto diagonal semitransparente em todas as páginas
-                    // ou apenas nas selecionadas (se payload.indices vier preenchido).
-                    case 'WATERMARK': {
-                        const { text, indices } = payload;
-                        const font = await pdfDoc.embedFont(self.PDFLib.StandardFonts.HelveticaBold);
-                        const targetIndices = (indices && indices.length > 0) ? indices : pdfDoc.getPageIndices();
-                        targetIndices.forEach(idx => {
-                            const page = pdfDoc.getPage(idx);
-                            const { width, height } = page.getSize();
-                            const fontSize = Math.min(width, height) / 8;
-                            const textWidth = font.widthOfTextAtSize(text, fontSize);
-                            page.drawText(text, {
-                                x: (width - textWidth) / 2,
-                                y: height / 2,
-                                size: fontSize,
-                                font,
-                                color: self.PDFLib.rgb(0.55, 0.55, 0.55),
-                                opacity: 0.28,
-                                rotate: self.PDFLib.degrees(45),
-                            });
-                        });
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Marca d\\'água aplicada.' } });
-                        break;
-                    }
-
-                    // 🆕 NUMERAÇÃO DE PÁGINAS: rodapé "N / total" em cada página.
-                    case 'PAGE_NUMBERS': {
-                        const { startAt } = payload;
-                        const font = await pdfDoc.embedFont(self.PDFLib.StandardFonts.Helvetica);
-                        const total = pdfDoc.getPageCount();
-                        pdfDoc.getPages().forEach((page, i) => {
-                            const { width } = page.getSize();
-                            const label = `${startAt + i} / ${startAt + total - 1}`;
-                            const fontSize = 10;
-                            const textWidth = font.widthOfTextAtSize(label, fontSize);
-                            page.drawText(label, {
-                                x: (width - textWidth) / 2,
-                                y: 18,
-                                size: fontSize,
-                                font,
-                                color: self.PDFLib.rgb(0.35, 0.35, 0.35),
-                                opacity: 0.9,
-                            });
-                        });
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Numeração adicionada.' } });
-                        break;
-                    }
-
-                    // 🆕 PÁGINA EM BRANCO: insere página vazia após o índice selecionado.
-                    case 'INSERT_BLANK': {
-                        const { afterIndex } = payload;
-                        const refPage = pdfDoc.getPage(Math.min(afterIndex, pdfDoc.getPageCount() - 1));
-                        const { width, height } = refPage.getSize();
-                        pdfDoc.insertPage(afterIndex + 1, [width, height]);
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Página em branco inserida.' } });
-                        break;
-                    }
-
-                    // 🆕 SELO / ASSINATURA: embute uma imagem (PNG/JPG) no canto inferior
-                    // direito da página selecionada — ótimo para logos, selos ou assinaturas digitalizadas.
-                    case 'STAMP_IMAGE': {
-                        const { index, file } = payload;
-                        const arrayBuffer = await file.arrayBuffer();
-                        let image;
-                        if (file.type === 'image/png') {
-                            image = await pdfDoc.embedPng(arrayBuffer);
-                        } else {
-                            image = await pdfDoc.embedJpg(arrayBuffer);
-                        }
-                        const page = pdfDoc.getPage(index);
-                        const { width, height } = page.getSize();
-                        const stampWidth = width * 0.22;
-                        const scale = stampWidth / image.width;
-                        const stampHeight = image.height * scale;
-                        const margin = 24;
-                        page.drawImage(image, {
-                            x: width - stampWidth - margin,
-                            y: margin,
-                            width: stampWidth,
-                            height: stampHeight,
-                            opacity: 0.95,
-                        });
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'OPERATION_SUCCESS', payload: { pdfBytes, message: 'Selo/assinatura aplicado.' } });
-                        break;
-                    }
-
-                    case 'SAVE': {
-                        const pdfBytes = await pdfDoc.save();
-                        self.postMessage({ type: 'SAVE_SUCCESS', payload: { pdfBytes } });
-                        break;
-                    }
-                }
-            } catch (error) {
-                self.postMessage({ type: 'ERROR', payload: { message: error.message || "Erro desconhecido no processamento." } });
-            }
-        };
-    </script>
-
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
         const AppState = {
-            pdfDocOriginal: null,
+            pdfDocOriginal: null, // Armazena a visualização do pdfjs
+            activePdfLibDoc: null, // Armazena o documento ativo do pdf-lib
             selectedPageIndices: new Set(),
             draggedPageIndex: null,
-            pdfWorker: null,
             isProcessing: false
         };
 
@@ -470,7 +299,6 @@
                 DOM.modal.el.classList.add('opacity-0');
                 setTimeout(() => DOM.modal.el.classList.add('hidden'), 300);
             },
-            // 🆕 Modal de prompt para capturar texto (marca d'água / número inicial de página)
             showPrompt({ icon = 'fa-keyboard', title, placeholder = '', defaultValue = '', hint = '' }) {
                 return new Promise((resolve) => {
                     DOM.promptModal.icon.className = `fas ${icon} text-xl text-fuchsia-600 dark:text-fuchsia-400`;
@@ -516,7 +344,6 @@
                 DOM.btn.download.disabled = !hasPdf;
                 DOM.fileNameInput.disabled = !hasPdf;
 
-                // 🆕 Ferramentas de edição avançada
                 DOM.btn.watermark.disabled = !hasPdf;
                 DOM.btn.pageNumbers.disabled = !hasPdf;
                 DOM.btn.insertBlank.disabled = !hasPdf || selCount !== 1;
@@ -598,45 +425,204 @@
         };
 
         const Logic = {
-            initWorker() {
-                if (AppState.pdfWorker) return;
+            async loadFiles(files) {
+                UI.showLoading('Lendo arquivos...');
                 try {
-                    const blob = new Blob([document.getElementById('pdfWorker').textContent], { type: 'application/javascript' });
-                    AppState.pdfWorker = new Worker(URL.createObjectURL(blob));
-                    AppState.pdfWorker.onmessage = this.handleWorkerMessage;
-                    AppState.pdfWorker.onerror = (e) => {
-                        console.error(e);
-                        UI.showModal("Erro crítico: O navegador bloqueou o Worker.");
-                    };
-                } catch (e) {
-                    UI.showModal("Seu navegador não suporta a tecnologia necessária (Web Workers).");
+                    if (!AppState.activePdfLibDoc) {
+                        AppState.activePdfLibDoc = await PDFLib.PDFDocument.create();
+                    }
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
+                        UI.showLoading(`Lendo ${file.name}...`);
+                        const arrayBuffer = await file.arrayBuffer();
+                        const newPdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+                        const copiedPages = await AppState.activePdfLibDoc.copyPages(newPdfDoc, newPdfDoc.getPageIndices());
+                        copiedPages.forEach(page => AppState.activePdfLibDoc.addPage(page));
+                    }
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao carregar arquivos: ${error.message}`);
                 }
             },
-            handleWorkerMessage(e) {
-                const { type, payload } = e.data;
-                switch (type) {
-                    case 'LOAD_SUCCESS':
-                    case 'OPERATION_SUCCESS':
-                        UI.renderPages(payload.pdfBytes);
-                        break;
-                    case 'SPLIT_SUCCESS':
-                        UI.hideLoading();
-                        Logic.downloadBytes(payload.pdfBytes, 'extracao_halexandre.pdf');
-                        break;
-                    case 'SAVE_SUCCESS':
-                        UI.hideLoading();
-                        let name = DOM.fileNameInput.value.trim() || 'documento.pdf';
-                        if (!name.toLowerCase().endsWith('.pdf')) name += '.pdf';
-                        Logic.downloadBytes(payload.pdfBytes, name);
-                        UI.showModal("Arquivo salvo com sucesso na sua pasta de Downloads!");
-                        break;
-                    case 'PROGRESS':
-                        DOM.loading.msg.textContent = payload.message;
-                        break;
-                    case 'ERROR':
-                        UI.hideLoading();
-                        UI.showModal(`Ocorreu um erro: ${payload.message}`);
-                        break;
+            async rotatePages(indices, angle) {
+                UI.showLoading('Girando páginas...');
+                try {
+                    indices.forEach(index => {
+                        const page = AppState.activePdfLibDoc.getPage(index);
+                        const currentRotation = page.getRotation().angle;
+                        page.setRotation(PDFLib.degrees(currentRotation + angle));
+                    });
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao girar: ${error.message}`);
+                }
+            },
+            async removePages(indices) {
+                UI.showLoading('Removendo páginas...');
+                try {
+                    [...indices].sort((a, b) => b - a).forEach(index => AppState.activePdfLibDoc.removePage(index));
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao remover: ${error.message}`);
+                }
+            },
+            async reorderPages(fromIndex, toIndex) {
+                UI.showLoading('Reordenando...');
+                try {
+                    const [movedPage] = await AppState.activePdfLibDoc.copyPages(AppState.activePdfLibDoc, [fromIndex]);
+                    AppState.activePdfLibDoc.removePage(fromIndex);
+                    AppState.activePdfLibDoc.insertPage(toIndex, movedPage);
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao reordenar: ${error.message}`);
+                }
+            },
+            async replacePage(index, file) {
+                UI.showLoading('Substituindo página...');
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const replacementPdf = await PDFLib.PDFDocument.load(arrayBuffer);
+                    if (replacementPdf.getPageCount() === 0) throw new Error("PDF vazio.");
+                    const [copiedPage] = await AppState.activePdfLibDoc.copyPages(replacementPdf, [0]);
+                    AppState.activePdfLibDoc.removePage(index);
+                    AppState.activePdfLibDoc.insertPage(index, copiedPage);
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao substituir: ${error.message}`);
+                }
+            },
+            async splitPages(indices) {
+                UI.showLoading('Extraindo páginas...');
+                try {
+                    const newPdfDoc = await PDFLib.PDFDocument.create();
+                    const copiedPages = await newPdfDoc.copyPages(AppState.activePdfLibDoc, indices.sort((a,b) => a-b));
+                    copiedPages.forEach(page => newPdfDoc.addPage(page));
+                    const pdfBytes = await newPdfDoc.save();
+                    UI.hideLoading();
+                    this.downloadBytes(pdfBytes, 'extracao_halexandre.pdf');
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao extrair: ${error.message}`);
+                }
+            },
+            async applyWatermark(text, indices) {
+                UI.showLoading('Aplicando marca d\'água...');
+                try {
+                    const font = await AppState.activePdfLibDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+                    const targetIndices = (indices && indices.length > 0) ? indices : AppState.activePdfLibDoc.getPageIndices();
+                    targetIndices.forEach(idx => {
+                        const page = AppState.activePdfLibDoc.getPage(idx);
+                        const { width, height } = page.getSize();
+                        const fontSize = Math.min(width, height) / 8;
+                        const textWidth = font.widthOfTextAtSize(text, fontSize);
+                        page.drawText(text, {
+                            x: (width - textWidth) / 2,
+                            y: height / 2,
+                            size: fontSize,
+                            font,
+                            color: PDFLib.rgb(0.55, 0.55, 0.55),
+                            opacity: 0.28,
+                            rotate: PDFLib.degrees(45),
+                        });
+                    });
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro na marca d'água: ${error.message}`);
+                }
+            },
+            async applyPageNumbers(startAt) {
+                UI.showLoading('Numerando páginas...');
+                try {
+                    const font = await AppState.activePdfLibDoc.embedFont(PDFLib.StandardFonts.Helvetica);
+                    const total = AppState.activePdfLibDoc.getPageCount();
+                    AppState.activePdfLibDoc.getPages().forEach((page, i) => {
+                        const { width } = page.getSize();
+                        const label = `${startAt + i} / ${startAt + total - 1}`;
+                        const fontSize = 10;
+                        const textWidth = font.widthOfTextAtSize(label, fontSize);
+                        page.drawText(label, {
+                            x: (width - textWidth) / 2,
+                            y: 18,
+                            size: fontSize,
+                            font,
+                            color: PDFLib.rgb(0.35, 0.35, 0.35),
+                            opacity: 0.9,
+                        });
+                    });
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro na numeração: ${error.message}`);
+                }
+            },
+            async insertBlankPage(afterIndex) {
+                UI.showLoading('Inserindo página...');
+                try {
+                    const refPage = AppState.activePdfLibDoc.getPage(Math.min(afterIndex, AppState.activePdfLibDoc.getPageCount() - 1));
+                    const { width, height } = refPage.getSize();
+                    AppState.activePdfLibDoc.insertPage(afterIndex + 1, [width, height]);
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao inserir página: ${error.message}`);
+                }
+            },
+            async stampImage(index, file) {
+                UI.showLoading('Aplicando selo...');
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    let image;
+                    if (file.type === 'image/png') {
+                        image = await AppState.activePdfLibDoc.embedPng(arrayBuffer);
+                    } else {
+                        image = await AppState.activePdfLibDoc.embedJpg(arrayBuffer);
+                    }
+                    const page = AppState.activePdfLibDoc.getPage(index);
+                    const { width, height } = page.getSize();
+                    const stampWidth = width * 0.22;
+                    const scale = stampWidth / image.width;
+                    const stampHeight = image.height * scale;
+                    const margin = 24;
+                    page.drawImage(image, {
+                        x: width - stampWidth - margin,
+                        y: margin,
+                        width: stampWidth,
+                        height: stampHeight,
+                        opacity: 0.95,
+                    });
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.renderPages(pdfBytes);
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao aplicar selo: ${error.message}`);
+                }
+            },
+            async saveDocument() {
+                UI.showLoading('Salvando documento...');
+                try {
+                    const pdfBytes = await AppState.activePdfLibDoc.save();
+                    UI.hideLoading();
+                    let name = DOM.fileNameInput.value.trim() || 'documento.pdf';
+                    if (!name.toLowerCase().endsWith('.pdf')) name += '.pdf';
+                    this.downloadBytes(pdfBytes, name);
+                    UI.showModal("Arquivo salvo com sucesso na sua pasta de Downloads!");
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao salvar: ${error.message}`);
                 }
             },
             downloadBytes(bytes, name) {
@@ -655,14 +641,13 @@
         const Events = {
             init() {
                 DOM.importInput.onchange = this.onImport;
-                DOM.btn.rotateCw.onclick = () => this.post('ROTATE', { indices: Array.from(AppState.selectedPageIndices), angle: 90 });
-                DOM.btn.rotateCcw.onclick = () => this.post('ROTATE', { indices: Array.from(AppState.selectedPageIndices), angle: -90 });
-                DOM.btn.remove.onclick = () => this.post('REMOVE', { indices: Array.from(AppState.selectedPageIndices) });
-                DOM.btn.split.onclick = () => this.post('SPLIT', { indices: Array.from(AppState.selectedPageIndices) });
-                DOM.btn.download.onclick = () => this.post('SAVE');
+                DOM.btn.rotateCw.onclick = () => Logic.rotatePages(Array.from(AppState.selectedPageIndices), 90);
+                DOM.btn.rotateCcw.onclick = () => Logic.rotatePages(Array.from(AppState.selectedPageIndices), -90);
+                DOM.btn.remove.onclick = () => Logic.removePages(Array.from(AppState.selectedPageIndices));
+                DOM.btn.split.onclick = () => Logic.splitPages(Array.from(AppState.selectedPageIndices));
+                DOM.btn.download.onclick = () => Logic.saveDocument();
                 DOM.btn.replace.onclick = this.onReplaceRequest;
 
-                // 🆕 Novas ferramentas
                 DOM.btn.watermark.onclick = this.onWatermarkRequest;
                 DOM.btn.pageNumbers.onclick = this.onPageNumbersRequest;
                 DOM.btn.insertBlank.onclick = this.onInsertBlankRequest;
@@ -675,15 +660,10 @@
                 DOM.pdfContainerWrapper.ondragleave = () => DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight');
                 DOM.pdfContainerWrapper.ondrop = this.onContainerDrop;
             },
-            post(type, payload = {}) {
-                UI.showLoading();
-                AppState.pdfWorker.postMessage({ type, payload });
-            },
             onImport(e) {
                 const files = Array.from(e.target.files).filter(f => f.type === 'application/pdf');
                 if (files.length > 0) {
-                    Logic.initWorker();
-                    Events.post('LOAD_FILES', { files });
+                    Logic.loadFiles(files);
                 }
                 e.target.value = '';
             },
@@ -720,7 +700,7 @@
                 const fromIdx = AppState.draggedPageIndex;
 
                 if (fromIdx !== null && fromIdx !== undefined && fromIdx !== toIdx) {
-                    Events.post('REORDER', { fromIndex: fromIdx, toIndex: toIdx });
+                    Logic.reorderPages(fromIdx, toIdx);
                 }
             },
             onDragEnd(e) { e.currentTarget.classList.remove('dragging'); },
@@ -729,8 +709,7 @@
                 DOM.pdfContainerWrapper.classList.remove('drop-zone-highlight');
                 const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
                 if (files.length > 0) {
-                    Logic.initWorker();
-                    Events.post('LOAD_FILES', { files });
+                     Logic.loadFiles(files);
                 }
             },
             onReplaceRequest() {
@@ -740,11 +719,10 @@
                 input.accept = '.pdf';
                 input.onchange = (e) => {
                     const file = e.target.files[0];
-                    if (file) Events.post('REPLACE', { index: idx, file });
+                    if (file) Logic.replacePage(idx, file);
                 };
                 input.click();
             },
-            // 🆕 Marca d'água: se houver páginas selecionadas, aplica só nelas; senão, em todo o PDF.
             async onWatermarkRequest() {
                 const text = await UI.showPrompt({
                     icon: 'fa-tint',
@@ -755,9 +733,8 @@
                         : 'Nenhuma página selecionada: será aplicada em todo o documento.'
                 });
                 if (!text) return;
-                Events.post('WATERMARK', { text, indices: Array.from(AppState.selectedPageIndices) });
+                Logic.applyWatermark(text, Array.from(AppState.selectedPageIndices));
             },
-            // 🆕 Numeração de páginas: pede o número inicial (padrão 1).
             async onPageNumbersRequest() {
                 const value = await UI.showPrompt({
                     icon: 'fa-list-ol',
@@ -768,14 +745,12 @@
                 });
                 if (value === null) return;
                 const startAt = parseInt(value, 10) || 1;
-                Events.post('PAGE_NUMBERS', { startAt });
+                Logic.applyPageNumbers(startAt);
             },
-            // 🆕 Página em branco: insere após a página selecionada.
             onInsertBlankRequest() {
                 const idx = Array.from(AppState.selectedPageIndices)[0];
-                Events.post('INSERT_BLANK', { afterIndex: idx });
+                Logic.insertBlankPage(idx);
             },
-            // 🆕 Selo/assinatura: pede uma imagem PNG/JPG e aplica na página selecionada.
             onStampImageRequest() {
                 const idx = Array.from(AppState.selectedPageIndices)[0];
                 const input = document.createElement('input');
@@ -783,7 +758,7 @@
                 input.accept = '.png,.jpg,.jpeg';
                 input.onchange = (e) => {
                     const file = e.target.files[0];
-                    if (file) Events.post('STAMP_IMAGE', { index: idx, file });
+                    if (file) Logic.stampImage(idx, file);
                 };
                 input.click();
             }
@@ -793,7 +768,6 @@
             UI.initTheme();
             UI.setBranding();
             UI.updateButtons();
-            Logic.initWorker();
             Events.init();
         });
     </script>
