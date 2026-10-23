@@ -17,9 +17,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- IMPORTAÇÃO DAS BIBLIOTECAS -->
+    <!-- IMPORTAÇÃO DAS BIBLIOTECAS (versões fixas para não quebrar com atualizações) -->
     <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 
     <script>
         tailwind.config = {
@@ -113,6 +113,69 @@
         }
         .dark #promptModal .prompt-input { background: #0f172a; border-color: #334155; color: #e2e8f0; }
         #promptModal .prompt-input:focus { border-color: var(--accent-color); }
+
+        /* ===== EDITOR DE CAIXA DE TEXTO ===== */
+        .ed-btn {
+            min-width: 36px; height: 36px; padding: 0 10px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 8px; background: #334155; color: #fff;
+            font-size: 14px; font-weight: 600; transition: background-color .15s;
+        }
+        .ed-btn:hover:not(:disabled) { background: #475569; }
+        .ed-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+        #edLayer { cursor: text; }
+        .tbox { position: absolute; z-index: 5; }
+        .tbox:hover { outline: 1.5px dashed rgba(37, 99, 235, .55); }
+        .tbox.active { outline: 2px dashed #2563eb; }
+        .tbox .tbox-text {
+            white-space: pre; outline: none; cursor: text;
+            line-height: 1.2; min-width: 1ch; caret-color: #2563eb;
+        }
+        .tbox .tbox-text:empty::before {
+            content: attr(data-placeholder);
+            color: #9ca3af; font-weight: 400; font-style: normal;
+            letter-spacing: 0; pointer-events: none;
+        }
+        .tbox .tbox-grip {
+            position: absolute; left: -14px; top: -2px; bottom: -2px; width: 14px;
+            background: #2563eb; color: #fff; font-size: 9px;
+            border-radius: 4px 0 0 4px;
+            display: none; align-items: center; justify-content: center;
+            cursor: grab; touch-action: none;
+        }
+        .tbox .tbox-grip:active { cursor: grabbing; }
+        .tbox.active .tbox-grip { display: flex; }
+
+        #textToolbar {
+            position: fixed; z-index: 95;
+            display: flex; align-items: center; gap: 2px;
+            padding: 6px 8px; border-radius: 12px;
+            background: #ffffff; color: #1e293b;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, .3);
+            user-select: none;
+        }
+        #textToolbar.hidden { display: none; }
+        .dark #textToolbar { background: #1e293b; color: #e2e8f0; border-color: #334155; }
+        .tb-btn {
+            position: relative; min-width: 32px; height: 32px; padding: 0 6px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 6px; font-size: 14px; cursor: pointer;
+            color: inherit; background: transparent; transition: background-color .12s;
+        }
+        .tb-btn:hover { background: rgba(100, 116, 139, .2); }
+        .tb-btn.on { background: rgba(79, 70, 229, .2); color: #4f46e5; }
+        .dark .tb-btn.on { color: #a5b4fc; }
+        .tb-sep { width: 1px; height: 22px; background: #cbd5e1; margin: 0 5px; }
+        .dark .tb-sep { background: #475569; }
+        .tb-readout { min-width: 30px; text-align: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .tb-select {
+            height: 32px; border-radius: 6px; padding: 0 6px; font-size: 13px; font-weight: 500;
+            background: transparent; color: inherit; border: 1px solid #cbd5e1; outline: none; cursor: pointer;
+        }
+        .dark .tb-select { border-color: #475569; }
+        .dark .tb-select option { background: #1e293b; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center p-4 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-200 selection:bg-indigo-500 selection:text-white">
@@ -122,7 +185,7 @@
         <header class="flex flex-col md:flex-row justify-between items-center gap-4 mb-8 border-b border-slate-100 dark:border-slate-700 pb-6">
             <div class="flex items-center gap-4 w-full md:w-auto">
                 <div class="relative group">
-                    <img src="LOGO_HERBERT_LEMOS.png" alt="Logo HAlexandre" class="w-16 h-16 rounded-xl shadow-md object-cover border-2 border-white dark:border-slate-700 group-hover:scale-105 transition-transform duration-300">
+                    <img src="LOGO_HERBERT_LEMOS.png" alt="Logo HAlexandre" onerror="this.parentElement.style.display='none'" class="w-16 h-16 rounded-xl shadow-md object-cover border-2 border-white dark:border-slate-700 group-hover:scale-105 transition-transform duration-300">
                     <div class="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/10 dark:ring-white/10"></div>
                 </div>
                 <div>
@@ -158,6 +221,7 @@
         <!-- Barra de Ferramentas: Edição Avançada -->
         <section class="flex flex-wrap items-center justify-center gap-3 mb-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
             <span class="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 w-full text-center mb-1">✏️ Edição Avançada</span>
+            <button id="addTextButton" class="tool-btn bg-sky-600 hover:bg-sky-700" disabled title="Dica: dê dois cliques em uma página para abrir direto nela"><i class="fas fa-font mr-2"></i> Caixa de Texto</button>
             <button id="watermarkButton" class="tool-btn bg-fuchsia-600 hover:bg-fuchsia-700" disabled><i class="fas fa-tint mr-2"></i> Marca d'água</button>
             <button id="pageNumbersButton" class="tool-btn bg-teal-600 hover:bg-teal-700" disabled><i class="fas fa-list-ol mr-2"></i> Numerar Páginas</button>
             <button id="insertBlankButton" class="tool-btn bg-lime-600 hover:bg-lime-700" disabled><i class="fas fa-file mr-2"></i> Pág. em Branco</button>
@@ -196,15 +260,75 @@
                 <span>Feito com <i class="fas fa-heart text-red-500 mx-0.5 animate-pulse"></i> por HAlexandre</span>
             </p>
             <div class="flex gap-4 text-slate-400 text-[10px] uppercase tracking-widest font-bold opacity-60">
-                <span>Versão 3.3.1 (Edição Avançada - No Worker)</span>
+                <span>Versão 3.4.0 (Caixa de Texto)</span>
                 <span>•</span>
                 <span>Privacidade Garantida</span>
             </div>
         </footer>
     </div>
 
+    <!-- ===== EDITOR DE CAIXA DE TEXTO (tela cheia) ===== -->
+    <div id="textEditor" class="fixed inset-0 z-[90] hidden flex flex-col bg-slate-900/95 backdrop-blur-sm">
+        <div id="edHeader" class="flex flex-wrap items-center gap-3 px-4 py-3 bg-slate-800 text-white border-b border-slate-700">
+            <div class="flex items-center gap-2 font-bold">
+                <i class="fas fa-font text-sky-400"></i> Caixa de Texto
+            </div>
+            <div class="flex items-center gap-1">
+                <button id="edPrev" class="ed-btn" title="Página anterior"><i class="fas fa-chevron-left"></i></button>
+                <span id="edPageLabel" class="text-sm font-semibold px-2 tabular-nums">Página 1 de 1</span>
+                <button id="edNext" class="ed-btn" title="Próxima página"><i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div class="flex items-center gap-1">
+                <button id="edZoomOut" class="ed-btn" title="Diminuir zoom"><i class="fas fa-search-minus"></i></button>
+                <span id="edZoomLabel" class="text-sm font-semibold w-12 text-center tabular-nums">100%</span>
+                <button id="edZoomIn" class="ed-btn" title="Aumentar zoom"><i class="fas fa-search-plus"></i></button>
+                <button id="edFit" class="ed-btn" title="Ajustar à largura"><i class="fas fa-expand"></i></button>
+            </div>
+            <span class="hidden xl:inline text-xs text-slate-400">Clique na página para criar uma caixa de texto. Arraste pela alça azul para mover.</span>
+            <div class="ml-auto flex gap-2">
+                <button id="edCancel" class="px-4 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 font-bold text-sm transition-colors">Cancelar</button>
+                <button id="edApply" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-sm transition-colors"><i class="fas fa-check mr-2"></i>Aplicar ao PDF</button>
+            </div>
+        </div>
+
+        <div id="edScroll" class="flex-1 overflow-auto p-6 flex">
+            <div id="edPageBox" class="relative bg-white shadow-2xl m-auto flex-none">
+                <div id="edCanvasHost"></div>
+                <div id="edLayer" class="absolute inset-0"></div>
+            </div>
+        </div>
+
+        <!-- Barra flutuante da caixa de texto -->
+        <div id="textToolbar" class="hidden">
+            <label class="tb-btn" title="Cor do texto" style="flex-direction:column; gap:1px; padding:0 4px;">
+                <span style="font-size:15px; font-weight:800; line-height:1;">A</span>
+                <span id="tbColorBar" style="display:block; width:16px; height:4px; border-radius:2px; background:#000000;"></span>
+                <input id="tbColor" type="color" value="#000000" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;">
+            </label>
+            <span class="tb-sep"></span>
+            <button id="tbSizeDown" class="tb-btn" title="Diminuir fonte"><span style="font-weight:700;">A−</span></button>
+            <span id="tbSize" class="tb-readout" title="Tamanho da fonte (pt)">16</span>
+            <button id="tbSizeUp" class="tb-btn" title="Aumentar fonte"><span style="font-weight:700;">A+</span></button>
+            <span class="tb-sep"></span>
+            <button id="tbSpacingDown" class="tb-btn" title="Diminuir espaçamento entre letras"><span style="font-size:12px; font-weight:700; letter-spacing:-1px;">AV</span><i class="fas fa-minus" style="font-size:8px; margin-left:3px;"></i></button>
+            <span id="tbSpacing" class="tb-readout" title="Espaçamento entre letras (pt)">0</span>
+            <button id="tbSpacingUp" class="tb-btn" title="Aumentar espaçamento entre letras"><span style="font-size:12px; font-weight:700; letter-spacing:-1px;">AV</span><i class="fas fa-plus" style="font-size:8px; margin-left:3px;"></i></button>
+            <span class="tb-sep"></span>
+            <select id="tbFont" class="tb-select" title="Fonte">
+                <option value="helv">Helvetica</option>
+                <option value="times">Times</option>
+                <option value="courier">Courier</option>
+            </select>
+            <button id="tbBold" class="tb-btn" title="Negrito" style="font-weight:800;">B</button>
+            <button id="tbItalic" class="tb-btn" title="Itálico" style="font-style:italic; font-family:Georgia, serif; font-weight:600;">I</button>
+            <span class="tb-sep"></span>
+            <button id="tbDelete" class="tb-btn" title="Excluir caixa de texto" style="color:#dc2626;"><i class="fas fa-trash-alt"></i></button>
+        </div>
+    </div>
+
     <!-- Modais e Overlays -->
     <div id="customModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] hidden opacity-0 transition-opacity duration-300">
+        <!-- (Manteve-se inalterado) -->
         <div class="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center border border-slate-100 dark:border-slate-700 transform scale-95 transition-transform duration-300">
             <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-indigo-100 dark:bg-indigo-900/30 mb-6">
                 <i id="modalIcon" class="fas fa-info text-2xl text-indigo-600 dark:text-indigo-400"></i>
@@ -214,8 +338,8 @@
         </div>
     </div>
 
-    <!-- Modal de Prompt (Marca d'água / Numeração) -->
     <div id="promptModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] hidden opacity-0 transition-opacity duration-300">
+        <!-- (Manteve-se inalterado) -->
         <div class="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center border border-slate-100 dark:border-slate-700">
             <div class="mx-auto flex items-center justify-center h-14 w-14 rounded-full bg-fuchsia-100 dark:bg-fuchsia-900/30 mb-4">
                 <i id="promptIcon" class="fas fa-tint text-xl text-fuchsia-600 dark:text-fuchsia-400"></i>
@@ -231,6 +355,7 @@
     </div>
 
     <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex flex-col items-center justify-center z-[110] hidden transition-opacity duration-300">
+        <!-- (Manteve-se inalterado) -->
         <div class="relative">
             <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-600 dark:border-slate-500 h-16 w-16" style="border-top-color: #6366f1;"></div>
             <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-500">PDF</div>
@@ -242,14 +367,15 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
         const AppState = {
-            pdfDocOriginal: null, // Armazena a visualização do pdfjs
-            activePdfLibDoc: null, // Armazena o documento ativo do pdf-lib
+            pdfDocOriginal: null,
+            activePdfLibDoc: null,
             selectedPageIndices: new Set(),
             draggedPageIndex: null,
             isProcessing: false
         };
 
         const DOM = {
+            // (Elementos DOM... mantidos inalterados)
             importInput: document.getElementById('importInput'),
             pdfContainer: document.getElementById('pdfContainer'),
             pdfContainerWrapper: document.getElementById('pdfContainerWrapper'),
@@ -286,10 +412,12 @@
                 pageNumbers: document.getElementById('pageNumbersButton'),
                 insertBlank: document.getElementById('insertBlankButton'),
                 stampImage: document.getElementById('stampImageButton'),
+                addText: document.getElementById('addTextButton'),
             }
         };
 
         const UI = {
+            // (Funções de interface mantidas)
             showModal(message) {
                 DOM.modal.msg.textContent = message;
                 DOM.modal.el.classList.remove('hidden');
@@ -348,6 +476,7 @@
                 DOM.btn.pageNumbers.disabled = !hasPdf;
                 DOM.btn.insertBlank.disabled = !hasPdf || selCount !== 1;
                 DOM.btn.stampImage.disabled = !hasPdf || selCount !== 1;
+                DOM.btn.addText.disabled = !hasPdf;
             },
             async renderPages(pdfBytes) {
                 this.showLoading('Gerando visualização...');
@@ -381,6 +510,7 @@
                 card.dataset.index = index;
                 card.draggable = true;
                 card.style.userSelect = 'none';
+                card.title = 'Dois cliques para adicionar texto';
 
                 card.innerHTML = `
                     <div class="selection-indicator"><i class="fas fa-check"></i></div>
@@ -392,6 +522,7 @@
                 await page.render({ canvasContext: ctx, viewport }).promise;
 
                 card.onclick = Events.onPageSelect;
+                card.ondblclick = () => Editor.show(index);
                 card.ondragstart = Events.onDragStart;
                 card.ondragover = Events.onDragOver;
                 card.ondragleave = Events.onDragLeave;
@@ -425,6 +556,7 @@
         };
 
         const Logic = {
+            // (Funções lógicas de manipulação do PDF-lib mantidas)
             async loadFiles(files) {
                 UI.showLoading('Lendo arquivos...');
                 try {
@@ -452,7 +584,8 @@
                     indices.forEach(index => {
                         const page = AppState.activePdfLibDoc.getPage(index);
                         const currentRotation = page.getRotation().angle;
-                        page.setRotation(PDFLib.degrees(currentRotation + angle));
+                        const newAngle = (((currentRotation + angle) % 360) + 360) % 360;
+                        page.setRotation(PDFLib.degrees(newAngle));
                     });
                     const pdfBytes = await AppState.activePdfLibDoc.save();
                     UI.renderPages(pdfBytes);
@@ -638,7 +771,468 @@
             }
         };
 
+        /* =====================================================================
+           EDITOR DE CAIXA DE TEXTO (Comentado passo-a-passo)
+           A lógica aqui cria uma camada visual para o usuário digitar, e no
+           final envia essas informações convertidas para o `pdf-lib` imprimir.
+           ===================================================================== */
+        const ED = {}; // Armazena referências do DOM
+
+        const Editor = {
+            isOpen: false,
+            page: 0,
+            scale: 1,
+            vp1: null,               // Viewport (área visível da página) em escala 1
+            boxes: [],               // Array que armazena os dados lógicos das caixas 
+            els: new Map(),          // Mapeia os elementos HTML criados na tela
+            active: null,            // Qual caixa de texto está selecionada no momento
+            nextId: 1,
+            renderTask: null,
+            renderToken: 0,
+            PAD: 4,                  // Respiro interno da caixa em pixels 
+            LH: 1.2,                 // Altura de linha (Line Height)
+            BASELINE: { helv: 0.9465, times: 0.9375, courier: 0.8665 }, // Posição base das fontes
+            FONTS: {                 // Fontes CSS correspondentes
+                helv: "Arial, Helvetica, sans-serif",
+                times: "'Times New Roman', Times, serif",
+                courier: "'Courier New', Courier, monospace"
+            },
+            // Estilos padrões que a caixa adota ao ser criada
+            defaults: { size: 16, color: '#000000', spacing: 0, family: 'helv', bold: false, italic: false },
+
+            // ETAPA 1: INICIALIZAÇÃO E EVENTOS
+            init() {
+                // Seleciona e armazena todos os IDs relevantes da tela do Editor
+                const ids = {
+                    root: 'textEditor', header: 'edHeader', scroll: 'edScroll', pageBox: 'edPageBox',
+                    canvasHost: 'edCanvasHost', layer: 'edLayer', toolbar: 'textToolbar',
+                    prev: 'edPrev', next: 'edNext', pageLabel: 'edPageLabel',
+                    zoomIn: 'edZoomIn', zoomOut: 'edZoomOut', zoomLabel: 'edZoomLabel', fit: 'edFit',
+                    cancel: 'edCancel', apply: 'edApply',
+                    color: 'tbColor', colorBar: 'tbColorBar', size: 'tbSize', spacing: 'tbSpacing',
+                    sizeUp: 'tbSizeUp', sizeDown: 'tbSizeDown', spacingUp: 'tbSpacingUp', spacingDown: 'tbSpacingDown',
+                    font: 'tbFont', bold: 'tbBold', italic: 'tbItalic', del: 'tbDelete'
+                };
+                Object.keys(ids).forEach(k => ED[k] = document.getElementById(ids[k]));
+
+                // Ações dos botões superiores (navegação, zoom e concluir)
+                ED.prev.onclick = () => this.goToPage(this.page - 1);
+                ED.next.onclick = () => this.goToPage(this.page + 1);
+                ED.zoomIn.onclick = () => this.setZoom(this.scale + 0.25);
+                ED.zoomOut.onclick = () => this.setZoom(this.scale - 0.25);
+                ED.fit.onclick = () => this.setZoom(this.fitScale());
+                ED.cancel.onclick = () => this.cancel();
+                ED.apply.onclick = () => this.apply();
+
+                // Impede que clicar na barra flutuante tire o foco de quem está digitando na caixa
+                ED.toolbar.addEventListener('mousedown', (e) => {
+                    if (!e.target.closest('select, input')) e.preventDefault();
+                });
+
+                // Ações da barra flutuante (mudar tamanho, cor, negrito, etc)
+                ED.sizeUp.onclick = () => this.change(b => b.size = Math.min(200, b.size + 2));
+                ED.sizeDown.onclick = () => this.change(b => b.size = Math.max(6, b.size - 2));
+                ED.spacingUp.onclick = () => this.change(b => b.spacing = Math.min(30, Math.round((b.spacing + 0.5) * 10) / 10));
+                ED.spacingDown.onclick = () => this.change(b => b.spacing = Math.max(-2, Math.round((b.spacing - 0.5) * 10) / 10));
+                ED.bold.onclick = () => this.change(b => b.bold = !b.bold);
+                ED.italic.onclick = () => this.change(b => b.italic = !b.italic);
+                ED.color.addEventListener('input', () => this.change(b => b.color = ED.color.value));
+                ED.font.addEventListener('change', () => {
+                    this.change(b => b.family = ED.font.value);
+                    if (this.active) this.els.get(this.active.id).txt.focus();
+                });
+                ED.del.onclick = () => { if (this.active) this.removeBox(this.active); };
+
+                // O evento de clique na página em si (Criação de nova caixa)
+                ED.scroll.addEventListener('mousedown', (e) => this.onScrollMouseDown(e));
+                ED.scroll.addEventListener('scroll', () => this.placeToolbar());
+                window.addEventListener('resize', () => { if (this.isOpen) this.placeToolbar(); });
+            },
+
+            // ETAPA 2: ABRIR/FECHAR MODAL DO EDITOR
+            async show(pageIndex = 0) {
+                if (!AppState.pdfDocOriginal || this.isOpen) return;
+                this.isOpen = true;
+                this.boxes = [];
+                this.els.clear();
+                this.active = null;
+                
+                ED.root.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                await this.goToPage(pageIndex, true);
+            },
+            close() {
+                this.isOpen = false;
+                this.renderToken++;
+                if (this.renderTask) { try { this.renderTask.cancel(); } catch (e) {} this.renderTask = null; }
+                this.boxes = [];
+                this.els.clear();
+                this.active = null;
+                ED.layer.innerHTML = '';
+                ED.canvasHost.innerHTML = '';
+                ED.toolbar.classList.add('hidden');
+                ED.root.classList.add('hidden');
+                document.body.style.overflow = '';
+            },
+            cancel() {
+                // Alerta caso o usuário tenha digitado algo e clique em cancelar
+                const hasText = this.boxes.some(b => b.text.trim());
+                if (hasText && !confirm('Descartar as caixas de texto que ainda não foram aplicadas?')) return;
+                this.close();
+            },
+
+            // ETAPA 3: NAVEGAÇÃO E ZOOM (Renderização Visual)
+            fitScale() {
+                const avail = ED.scroll.clientWidth - 64;
+                const s = avail / this.vp1.width;
+                return Math.round(Math.max(0.5, Math.min(2.5, s)) * 100) / 100;
+            },
+            async goToPage(index, fit = false) {
+                const total = AppState.pdfDocOriginal.numPages;
+                if (index < 0 || index >= total) return;
+                this.deactivate();
+                this.page = index;
+                const page = await AppState.pdfDocOriginal.getPage(index + 1);
+                this.vp1 = page.getViewport({ scale: 1 }); // Sempre capta as coordenadas na escala 100%
+                if (fit) this.scale = this.fitScale();
+                
+                this.layoutPage();
+                this.rebuildBoxes(); // Traz de volta caixas que pertencem a essa página
+                this.renderPage();
+            },
+            setZoom(value) {
+                if (!this.vp1) return;
+                this.scale = Math.round(Math.max(0.4, Math.min(4, value)) * 100) / 100;
+                this.layoutPage();
+                this.els.forEach((_, id) => this.styleBox(this.boxes.find(b => b.id === id)));
+                this.renderPage();
+                this.placeToolbar();
+            },
+            layoutPage() {
+                ED.pageBox.style.width = (this.vp1.width * this.scale) + 'px';
+                ED.pageBox.style.height = (this.vp1.height * this.scale) + 'px';
+                ED.zoomLabel.textContent = Math.round(this.scale * 100) + '%';
+                const total = AppState.pdfDocOriginal.numPages;
+                ED.pageLabel.textContent = `Página ${this.page + 1} de ${total}`;
+                ED.prev.disabled = this.page === 0;
+                ED.next.disabled = this.page >= total - 1;
+            },
+            async renderPage() {
+                // Desenha a imagem base da página PDF no canvas do editor usando o PDF.js
+                const token = ++this.renderToken;
+                const page = await AppState.pdfDocOriginal.getPage(this.page + 1);
+                const dpr = window.devicePixelRatio || 1;
+                const vp = page.getViewport({ scale: this.scale * dpr });
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.floor(vp.width);
+                canvas.height = Math.floor(vp.height);
+                canvas.style.width = (vp.width / dpr) + 'px';
+                canvas.style.height = (vp.height / dpr) + 'px';
+                canvas.style.display = 'block';
+
+                if (this.renderTask) { try { this.renderTask.cancel(); } catch (e) {} }
+                const task = page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+                this.renderTask = task;
+                try { await task.promise; } catch (e) { return; }
+                if (token !== this.renderToken || !this.isOpen) return;
+                
+                ED.canvasHost.replaceChildren(canvas);
+            },
+
+            // ETAPA 4: LÓGICA DAS CAIXAS DE TEXTO (Adicionar, arrastar, editar)
+            rebuildBoxes() {
+                ED.layer.innerHTML = '';
+                this.els.clear();
+                this.boxes.filter(b => b.page === this.page).forEach(b => this.createBoxEl(b));
+            },
+            createBox(x, y) {
+                // Criação do dado lógico que compõe a caixa
+                const d = this.defaults;
+                const b = {
+                    id: this.nextId++, page: this.page, text: '',
+                    x: 0, y: 0,
+                    size: d.size, color: d.color, spacing: d.spacing,
+                    family: d.family, bold: d.bold, italic: d.italic
+                };
+                
+                // Limita a criação para que a caixa não nasça "fora" das bordas
+                b.x = Math.max(0, Math.min(x - this.PAD, this.vp1.width - 20));
+                b.y = Math.max(0, Math.min(y - this.PAD - b.size * this.LH / 2, this.vp1.height - 20));
+                
+                this.boxes.push(b);
+                this.createBoxEl(b); // Cria os elementos HTML 
+                this.els.get(b.id).txt.focus(); // Já foca o cursor pra digitar
+                return b;
+            },
+            createBoxEl(b) {
+                // Cria o 'quadrado' externo e a div que segura o texto 'contenteditable'
+                const wrap = document.createElement('div');
+                wrap.className = 'tbox';
+                wrap.dataset.id = b.id;
+
+                // Alça azul usada para arrastar (grip)
+                const grip = document.createElement('div');
+                grip.className = 'tbox-grip';
+                grip.title = 'Arraste para mover';
+                grip.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+
+                const txt = document.createElement('div');
+                txt.className = 'tbox-text';
+                
+                // plaintext-only impede colar HTML dentro da div
+                txt.setAttribute('contenteditable', 'plaintext-only');
+                if (txt.contentEditable !== 'plaintext-only') txt.setAttribute('contenteditable', 'true');
+                
+                txt.spellcheck = false;
+                txt.dataset.placeholder = 'Comece a digitar aqui.';
+                txt.textContent = b.text;
+
+                wrap.append(grip, txt);
+                ED.layer.appendChild(wrap);
+                this.els.set(b.id, { wrap, txt });
+                this.styleBox(b); // Aplica as cores/fontes
+
+                // Monitoramento de eventos na caixa de texto
+                txt.addEventListener('focus', () => this.setActive(b));
+                txt.addEventListener('input', () => {
+                    b.text = this.readText(txt);
+                    if (!txt.textContent.length || txt.innerHTML === '<br>') txt.innerHTML = '';
+                    this.placeToolbar();
+                });
+                
+                // Tratamento especial na hora que o usuário tenta dar 'Colar' (Paste)
+                txt.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    const t = (e.clipboardData || window.clipboardData).getData('text/plain');
+                    document.execCommand('insertText', false, t);
+                });
+                txt.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') { e.preventDefault(); this.deactivate(); }
+                });
+
+                // Movimentação da caixa - Utilizando o moderno sistema de "Pointer Events"
+                grip.addEventListener('mousedown', (e) => e.preventDefault());
+                grip.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    txt.focus();
+                    grip.setPointerCapture(e.pointerId);
+                    const sx = e.clientX, sy = e.clientY, ox = b.x, oy = b.y;
+                    
+                    const move = (ev) => {
+                        b.x = Math.max(0, Math.min(ox + (ev.clientX - sx) / this.scale, this.vp1.width - 20));
+                        b.y = Math.max(0, Math.min(oy + (ev.clientY - sy) / this.scale, this.vp1.height - 20));
+                        this.styleBox(b);
+                        this.placeToolbar();
+                    };
+                    const up = () => {
+                        grip.removeEventListener('pointermove', move);
+                        grip.removeEventListener('pointerup', up);
+                        grip.removeEventListener('pointercancel', up);
+                    };
+                    
+                    grip.addEventListener('pointermove', move);
+                    grip.addEventListener('pointerup', up);
+                    grip.addEventListener('pointercancel', up);
+                });
+            },
+            readText(txt) {
+                return txt.innerText.replace(/\u00a0/g, ' ').replace(/\n$/, '');
+            },
+            styleBox(b) {
+                // Renderiza via CSS na tela as exatas proporções que a matemática exige
+                const ref = this.els.get(b.id);
+                if (!ref || !b) return;
+                const S = this.scale;
+                ref.wrap.style.left = (b.x * S) + 'px';
+                ref.wrap.style.top = (b.y * S) + 'px';
+                const t = ref.txt.style;
+                t.padding = (this.PAD * S) + 'px';
+                t.fontSize = (b.size * S) + 'px';
+                t.letterSpacing = (b.spacing * S) + 'px';
+                t.color = b.color;
+                t.fontFamily = this.FONTS[b.family];
+                t.fontWeight = b.bold ? '700' : '400';
+                t.fontStyle = b.italic ? 'italic' : 'normal';
+            },
+            removeBox(b) {
+                const ref = this.els.get(b.id);
+                if (ref) ref.wrap.remove();
+                this.els.delete(b.id);
+                this.boxes = this.boxes.filter(x => x !== b);
+                if (this.active === b) {
+                    this.active = null;
+                    ED.toolbar.classList.add('hidden');
+                }
+            },
+            setActive(b) {
+                if (this.active === b) { this.syncToolbar(); this.placeToolbar(); return; }
+                const prev = this.active;
+                this.active = b;
+                this.els.forEach((ref, id) => ref.wrap.classList.toggle('active', id === b.id));
+                // Destrói caixas abandonadas vazias 
+                if (prev && !prev.text.trim()) this.removeBox(prev); 
+                this.syncToolbar();
+                this.placeToolbar();
+            },
+            deactivate() {
+                const prev = this.active;
+                this.active = null;
+                this.els.forEach(ref => ref.wrap.classList.remove('active'));
+                ED.toolbar.classList.add('hidden');
+                if (prev && !prev.text.trim()) this.removeBox(prev);
+                const ae = document.activeElement;
+                if (ae && ED.layer.contains(ae)) ae.blur();
+            },
+
+            // ETAPA 5: LÓGICA DA BARRA FLUTUANTE (Modificação de estilos)
+            change(fn) {
+                const b = this.active;
+                if (!b) return;
+                fn(b);
+                this.defaults = { size: b.size, color: b.color, spacing: b.spacing, family: b.family, bold: b.bold, italic: b.italic };
+                this.styleBox(b);
+                this.syncToolbar();
+                this.placeToolbar();
+            },
+            syncToolbar() {
+                const b = this.active;
+                if (!b) return;
+                ED.color.value = b.color;
+                ED.colorBar.style.background = b.color;
+                ED.size.textContent = b.size;
+                ED.spacing.textContent = String(b.spacing);
+                ED.font.value = b.family;
+                ED.bold.classList.toggle('on', b.bold);
+                ED.italic.classList.toggle('on', b.italic);
+            },
+            placeToolbar() {
+                // Cálculo para a barra flutuante seguir a caixa, mas não sumir da tela
+                const b = this.active;
+                const ref = b && this.els.get(b.id);
+                if (!ref) { ED.toolbar.classList.add('hidden'); return; }
+                
+                const tb = ED.toolbar;
+                tb.classList.remove('hidden');
+                const r = ref.wrap.getBoundingClientRect();
+                const top0 = ED.header.getBoundingClientRect().bottom + 4;
+                const w = tb.offsetWidth, h = tb.offsetHeight;
+                
+                let top = r.top - h - 10;
+                if (top < top0) top = r.bottom + 10;
+                if (top + h > window.innerHeight - 4) top = Math.max(top0, window.innerHeight - h - 4);
+                
+                const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+                tb.style.top = top + 'px';
+                tb.style.left = left + 'px';
+            },
+
+            onScrollMouseDown(e) {
+                // Se clicar fora com alguém ativo, apenas tira a seleção
+                if (e.button !== 0) return;
+                if (e.target.closest('.tbox')) return;
+                if (this.active) {
+                    e.preventDefault();
+                    this.deactivate();
+                    return;
+                }
+                // Criação de uma nova caixa no ponto do clique (convertido para escala)
+                if (!e.target.closest('#edPageBox')) return;
+                e.preventDefault();
+                const rect = ED.layer.getBoundingClientRect();
+                this.createBox((e.clientX - rect.left) / this.scale, (e.clientY - rect.top) / this.scale);
+            },
+
+            // ETAPA 6: MATEMÁTICA DE CONVERSÃO E GRAVAÇÃO NO PDF REAL
+            fontKey(family, bold, italic) {
+                if (family === 'times') return 'TimesRoman' + (bold ? 'Bold' : '') + (italic ? 'Italic' : '');
+                const base = family === 'courier' ? 'Courier' : 'Helvetica';
+                return base + (bold && italic ? 'BoldOblique' : bold ? 'Bold' : italic ? 'Oblique' : '');
+            },
+            sanitize(font, str, bad) {
+                let out = '';
+                for (const ch of Array.from(str)) {
+                    try { font.encodeText(ch); out += ch; }
+                    catch (e) { out += '?'; bad.add(ch); } // Caracteres não suportados viram "?"
+                }
+                return out;
+            },
+            hexToRgb(hex) {
+                const n = parseInt(hex.replace('#', ''), 16);
+                return PDFLib.rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+            },
+            async apply() {
+                // Função mestre que injeta todo o texto coletado dentro do buffer do PDF
+                this.deactivate();
+                const items = this.boxes.filter(b => b.text.trim().length);
+                if (!items.length) { this.close(); return; }
+
+                UI.showLoading('Aplicando texto no PDF...');
+                const bad = new Set();
+                try {
+                    const doc = AppState.activePdfLibDoc;
+                    const fonts = {};
+                    const viewports = {};
+
+                    for (const b of items) {
+                        const key = this.fontKey(b.family, b.bold, b.italic);
+                        
+                        // Otimização para não embedar a mesma fonte múltiplas vezes
+                        if (!fonts[key]) fonts[key] = await doc.embedFont(PDFLib.StandardFonts[key]);
+                        if (!viewports[b.page]) {
+                            const p = await AppState.pdfDocOriginal.getPage(b.page + 1);
+                            viewports[b.page] = p.getViewport({ scale: 1 });
+                        }
+                        
+                        const font = fonts[key];
+                        const vp = viewports[b.page];
+                        const page = doc.getPage(b.page);
+                        const color = this.hexToRgb(b.color);
+                        const rotate = PDFLib.degrees(vp.rotation); // Acompanha as páginas que o usuário girou
+
+                        const lines = b.text.replace(/\r/g, '').replace(/\t/g, '    ').split('\n');
+
+                        lines.forEach((rawLine, i) => {
+                            if (!rawLine.trim()) return;
+                            const line = this.sanitize(font, rawLine, bad);
+                            // Calculo de "Baseline" do texto na matemática do pdf-lib
+                            const baselineY = b.y + this.PAD + i * this.LH * b.size + this.BASELINE[b.family] * b.size;
+                            let cx = b.x + this.PAD;
+
+                            // A função `vp.convertToPdfPoint` é o "pulo do gato": ela descobre as
+                            // coordenadas matemáticas exatas no PDF, mesmo que a MediaBox não seja padrão 0,0
+                            if (b.spacing === 0) {
+                                const [px, py] = vp.convertToPdfPoint(cx, baselineY);
+                                page.drawText(line, { x: px, y: py, size: b.size, font, color, rotate });
+                            } else {
+                                // PDFLib não tem letter-spacing nativo, então desenhamos letra por letra
+                                for (const ch of Array.from(line)) {
+                                    if (ch !== ' ') {
+                                        const [px, py] = vp.convertToPdfPoint(cx, baselineY);
+                                        page.drawText(ch, { x: px, y: py, size: b.size, font, color, rotate });
+                                    }
+                                    cx += font.widthOfTextAtSize(ch, b.size) + b.spacing;
+                                }
+                            }
+                        });
+                    }
+
+                    const bytes = await doc.save();
+                    this.close();
+                    await UI.renderPages(bytes); // Re-renderiza a visualização com o texto salvo
+                    
+                    if (bad.size) {
+                        UI.showModal(`Alguns caracteres não existem nas fontes padrão do PDF e foram trocados por "?": ${Array.from(bad).join(' ')}`);
+                    }
+                } catch (error) {
+                    UI.hideLoading();
+                    UI.showModal(`Erro ao aplicar texto: ${error.message}`);
+                    console.error(error);
+                }
+            }
+        };
+
         const Events = {
+            // (Funções de eventos mantidas inalteradas)
             init() {
                 DOM.importInput.onchange = this.onImport;
                 DOM.btn.rotateCw.onclick = () => Logic.rotatePages(Array.from(AppState.selectedPageIndices), 90);
@@ -652,6 +1246,10 @@
                 DOM.btn.pageNumbers.onclick = this.onPageNumbersRequest;
                 DOM.btn.insertBlank.onclick = this.onInsertBlankRequest;
                 DOM.btn.stampImage.onclick = this.onStampImageRequest;
+                DOM.btn.addText.onclick = () => {
+                    const sel = Array.from(AppState.selectedPageIndices);
+                    Editor.show(sel.length ? Math.min(...sel) : 0);
+                };
 
                 DOM.themeToggle.onclick = UI.toggleTheme;
                 DOM.modal.btn.onclick = UI.hideModal;
@@ -769,6 +1367,7 @@
             UI.setBranding();
             UI.updateButtons();
             Events.init();
+            Editor.init();
         });
     </script>
 </body>
